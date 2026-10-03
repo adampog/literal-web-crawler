@@ -32,7 +32,7 @@ Plugins land disabled so you can read the code first. It runs inside
 Add this to `~/.config/hypr/bindings.lua`:
 
 ```lua
-o.bind("SUPER + ALT + W", "Literal web crawler", { panel = "io.github.adampog.literal-web-crawler" })
+o.bind("SUPER + ALT + W", "Literal web crawler", "omarchy-shell shell toggle io.github.adampog.literal-web-crawler '{}'")
 ```
 
 `SUPER + ALT + W` is free in Omarchy's default bindings. Press it again to close.
