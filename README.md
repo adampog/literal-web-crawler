@@ -96,23 +96,8 @@ omarchy plugin remove io.github.adampog.literal-web-crawler
 
 ## Development
 
-```bash
-npm install
-npm run check   # lint + manifest validation + tests
-```
-
-- `npm run lint`: ESLint over the engine, browser host, tests and scripts.
-- `npm run validate`: the same manifest checks `omarchy plugin validate` does.
-- `npm test`: engine and screen-map tests with Node's test runner.
-
-To try the browser version, serve the folder (`npx serve .`) and open it.
-The page loads `core/crawler.js` and `web/app.js` as separate files.
-
-On an Omarchy machine, also lint the QML:
-
-```bash
-qmllint -I "$OMARCHY_PATH/shell" *.qml
-```
+The plugin needs no build step. To run the linters and tests, or to work on
+the browser version, see [docs/development.md](docs/development.md).
 
 ## License
 
