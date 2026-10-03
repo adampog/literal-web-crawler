@@ -1,0 +1,20 @@
+{
+  "name": "literal-web-crawler",
+  "version": "1.0.0",
+  "description": "A spider that crawls web pages, and your Omarchy desktop, tearing pieces off as it goes.",
+  "license": "MIT",
+  "author": "adampog",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "node --test \"test/*.test.js\"",
+    "validate": "node scripts/validate-manifest.js",
+    "check": "npm run lint && npm run validate && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0"
+  }
+}

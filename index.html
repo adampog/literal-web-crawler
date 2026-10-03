@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Literal Web Crawler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap">
+<style>
+/* Layout: a sticky instrument bar over a dense reference page; the spider and
+   torn-off text float in layers above it. Neon palette matches core/crawler.js. */
+:root {
+  --bg: #f4f5f2;
+  --paper: #fbfbf9;
+  --fg: #1a1c1f;
+  --muted: #5d6266;
+  --rule: #d6d9d4;
+  --link: #2448b8;
+  --spider: #14161a;
+  --hl-cyan: #1fb3cc;
+  --hl-magenta: #d23fa6;
+  --hl-violet: #7b5cf0;
+  --hl-amber: #e8962a;
+  --hl-ink: #0c0d10;
+  --bar: rgba(244, 245, 242, .9);
+  --control: #e6e8e3;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0a0b0d; --paper: #0f1013; --fg: #d8dce2; --muted: #8a9099; --rule: #2a2d33;
+    --link: #8eaaff; --spider: #f3f5f8;
+    --hl-cyan: #55dcf2; --hl-magenta: #e45cc0; --hl-violet: #9a82ff; --hl-amber: #ffb547; --hl-ink: #07080a;
+    --bar: rgba(10, 11, 13, .88); --control: #1c1e23; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0a0b0d; --paper: #0f1013; --fg: #d8dce2; --muted: #8a9099; --rule: #2a2d33;
+  --link: #8eaaff; --spider: #f3f5f8;
+  --hl-cyan: #55dcf2; --hl-magenta: #e45cc0; --hl-violet: #9a82ff; --hl-amber: #ffb547; --hl-ink: #07080a;
+  --bar: rgba(10, 11, 13, .88); --control: #1c1e23; color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { overflow-x: clip; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); }
+
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 40;
+  background: var(--bar); backdrop-filter: blur(8px);
+  border-bottom: 1px solid transparent;
+  border-image: linear-gradient(90deg, var(--hl-cyan), var(--hl-magenta), var(--hl-violet), var(--hl-amber)) 1;
+  padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px;
+  font-family: var(--font-display); font-size: 13px;
+}
+.bar h1 { margin: 0 auto 0 0; font-size: 18px; font-weight: 700; letter-spacing: -.01em; display: flex; gap: 8px; align-items: baseline; }
+.bar h1 .lit {
+  background: linear-gradient(90deg, var(--hl-cyan), var(--hl-magenta) 55%, var(--hl-violet));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.bar h1 small { font-family: var(--font-mono); font-size: 11px; font-weight: 400; color: var(--muted); }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.seg { display: inline-flex; background: var(--control); border-radius: 7px; padding: 2px; }
+.seg button { border: 0; background: transparent; color: var(--muted); font: inherit; padding: 5px 10px; border-radius: 5px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--paper); color: var(--fg); box-shadow: 0 0 0 1px var(--hl-cyan), 0 0 10px -2px var(--hl-cyan); }
+label.range { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-size: 11px; }
+label.range input { width: 90px; }
+#rip { accent-color: var(--hl-magenta); }
+#size { accent-color: var(--hl-violet); }
+.btn { border: 1px solid var(--rule); background: var(--paper); color: var(--fg); font: inherit; padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+.btn:hover { border-color: var(--hl-cyan); }
+.btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.btn.primary:hover { box-shadow: 0 0 12px -2px var(--hl-magenta); }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--hl-violet); outline-offset: 2px; }
+.count { font-family: var(--font-mono); font-size: 12px; color: var(--hl-magenta); font-variant-numeric: tabular-nums; }
+
+#own {
+  position: relative; z-index: 35;
+  max-width: 46rem; margin: 16px auto 0; padding: 14px 16px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 10px;
+  font-family: var(--font-display); font-size: 14px;
+  display: grid; gap: 10px;
+}
+#own p { margin: 0; color: var(--muted); }
+#own textarea { width: 100%; box-sizing: border-box; min-height: 120px; resize: vertical; font-family: var(--font-mono); font-size: 12px; background: var(--bg); color: var(--fg); border: 1px solid var(--rule); border-radius: 7px; padding: 8px; }
+#own .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#ownMsg { font-size: 13px; color: var(--hl-magenta); }
+.wrap { padding: 0 16px; }
+
+#doc {
+  max-width: 46rem; margin: 0 auto; padding-block: 28px 120px;
+  font-size: 1.05rem; line-height: 1.6;
+  user-select: none; -webkit-user-select: none;
+}
+#doc .eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--hl-violet); }
+#doc h1, #doc h2, #doc h3, #doc h4 { font-family: var(--font-body); font-weight: 600; text-wrap: balance; line-height: 1.2; }
+#doc h1 { font-size: 2.3rem; margin: 4px 0 6px; font-weight: 400; }
+#doc h2 { font-size: 1.45rem; font-weight: 400; border-bottom: 1px solid var(--rule); padding-bottom: 4px; margin: 1.8em 0 .6em; }
+#doc h3 { font-size: 1.1rem; margin: 1.4em 0 .4em; }
+#doc .lede { color: var(--muted); font-style: italic; margin-top: 0; }
+#doc a { color: var(--link); text-decoration: none; }
+#doc a:hover { text-decoration: underline; text-decoration-color: var(--hl-magenta); }
+#doc sup { font-size: .7em; line-height: 0; }
+#doc .refs { font-size: .86rem; line-height: 1.5; padding-left: 2.2em; }
+#doc .refs li { margin-bottom: .35em; }
+#doc .refs li::marker { color: var(--hl-cyan); }
+@media (min-width: 760px) { #doc .refs.cols { columns: 2; column-gap: 2.2em; } #doc .refs.cols li { break-inside: avoid; } }
+#doc ul.plain { font-size: .9rem; line-height: 1.5; padding-left: 1.2em; }
+#doc .gone { visibility: hidden; }
+
+#debris { position: absolute; left: 0; top: 0; width: 100%; overflow: hidden; pointer-events: none; z-index: 20; }
+/* A torn piece. h0-h3 pick its color (matching CRAWLER_PALETTE order),
+   and fill, outline or mono picks how it is drawn. */
+.debris {
+  --c: var(--hl-cyan);
+  position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform;
+  font-family: var(--font-body); font-size: .9rem; line-height: 1.3; padding: 0 3px;
+}
+.debris.h0 { --c: var(--hl-cyan); }
+.debris.h1 { --c: var(--hl-magenta); }
+.debris.h2 { --c: var(--hl-violet); }
+.debris.h3 { --c: var(--hl-amber); }
+.debris.fill { background: var(--c); color: var(--hl-ink); box-shadow: 0 0 14px var(--c); }
+.debris.outline { border: 1px solid var(--c); color: var(--c); font-family: var(--font-mono); font-size: 1.05rem; box-shadow: 0 0 10px -3px var(--c); }
+.debris.mono { color: var(--c); font-family: var(--font-mono); font-size: 1.1rem; letter-spacing: .08em; text-shadow: 0 0 8px var(--c); }
+
+#legs { position: fixed; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; z-index: 30; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <h1><span class="lit">Literal Web Crawler</span> <small>tap anywhere to send it there</small></h1>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="Movement">
+      <button id="mRoam" aria-pressed="true">Roam</button>
+      <button id="mFollow" aria-pressed="false">Follow cursor</button>
+    </div>
+    <label class="range" for="rip">Rip <input id="rip" type="range" min="0" max="1" step="0.05" value="0.35"></label>
+    <label class="range" for="size">Size <input id="size" type="range" min="0.6" max="2" step="0.05" value="1"></label>
+    <button class="btn" id="pause">Pause</button>
+    <button class="btn" id="repair">Repair page</button>
+    <button class="btn primary" id="ownBtn" aria-expanded="false" aria-controls="own">Use your own page</button>
+    <span class="count" id="torn">0 torn off</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <section id="own" hidden>
+    <p>Copy part of any web page and paste it below. A references or citations section works best: links, ISBNs and DOIs are what the spider likes to tear off. Links and basic formatting come along with the paste.</p>
+    <textarea id="src" placeholder="Paste here (Ctrl+V or ⌘V)"></textarea>
+    <div class="row">
+      <button class="btn primary" id="crawl">Crawl this</button>
+      <button class="btn" id="sample">Back to sample page</button>
+      <span id="ownMsg" role="status"></span>
+    </div>
+  </section>
+  <article id="doc"></article>
+</div>
+<div id="debris"></div>
+<canvas id="legs" aria-hidden="true"></canvas>
+
+<template id="sampleTpl">
+  <div class="eyebrow">Sample page · links and IDs are inert</div>
+  <h1>Web crawler</h1>
+  <p class="lede">An article about programs that walk the web, for a program that walks on web pages.</p>
+  <p>A <b>web crawler</b>, also called a <a href="#">spider</a> or <a href="#">bot</a>, is a program that browses the <a href="#">World Wide Web</a> methodically, usually to build an index for a <a href="#">search engine</a>. It starts from a list of seed URLs, fetches each page, pulls out its links, and adds the new ones to a queue called the <i>crawl frontier</i>.<sup><a href="#">[1]</a></sup> The frontier is the crawler's to-do list, and how it is ordered decides what the crawler sees first.<sup><a href="#">[2]</a></sup></p>
+  <h2>History</h2>
+  <p>In June 1993 <a href="#">Matthew Gray</a> wrote the <a href="#">World Wide Web Wanderer</a> to measure how fast the web was growing.<sup><a href="#">[3]</a></sup> <a href="#">WebCrawler</a>, released by <a href="#">Brian Pinkerton</a> at the <a href="#">University of Washington</a> on 20 April 1994, was the first search engine to index the full text of every page it visited.<sup><a href="#">[4]</a></sup> That same year <a href="#">Martijn Koster</a> proposed <a href="#">robots.txt</a>, a plain text file that tells crawlers which paths to leave alone.<sup><a href="#">[5]</a></sup> It stayed an informal convention for 28 years, until the <a href="#">IETF</a> published it as <a href="#">RFC 9309</a> in September 2022.<sup><a href="#">[6]</a></sup></p>
+  <p>The crawler behind <a href="#">Google</a> was described in Brin and Page's 1998 paper, which reported fetching about 100 pages per second across several machines.<sup><a href="#">[7]</a></sup> <a href="#">Mercator</a>, built at <a href="#">Compaq</a>'s Systems Research Center, showed in 1999 how to make a crawler modular and extensible in <a href="#">Java</a>.<sup><a href="#">[8]</a></sup> Later systems such as <a href="#">UbiCrawler</a> and <a href="#">IRLbot</a> pushed past 6,000,000,000 pages.<sup><a href="#">[9]</a></sup><sup><a href="#">[10]</a></sup></p>
+  <h2>Crawl policies</h2>
+  <h3>Selection</h3>
+  <p>No crawler can fetch the whole web, so each one ranks its frontier. Najork and Wiener found that a plain breadth-first order already reaches high-quality pages early.<sup><a href="#">[11]</a></sup></p>
+  <h3>Revisit and freshness</h3>
+  <p>Pages change after they are fetched. Cho and Garcia-Molina showed that revisiting every page at the same rate beats revisiting fast-changing pages more often, a result that surprised many people at the time.<sup><a href="#">[12]</a></sup></p>
+  <h3>Politeness</h3>
+  <p>A crawler can fetch far faster than a small server can answer. Polite crawlers keep one connection per host, wait between requests, and honor <code>Crawl-delay</code> where it is set.<sup><a href="#">[1]</a></sup></p>
+  <h3>Spider traps</h3>
+  <p>Some sites generate endless URLs, such as a calendar with a "next month" link that never runs out. Crawlers cap depth per host and normalize URLs so they do not walk forever.<sup><a href="#">[13]</a></sup></p>
+  <h2>Why "spider"</h2>
+  <p>The web metaphor came first, and the crawler that walks along its threads followed naturally. Real spiders walk with an <a href="#">alternating tetrapod gait</a>: the first and third legs on one side move together with the second and fourth on the other, while the remaining four legs hold on.<sup><a href="#">[14]</a></sup> The spider on this page walks the same way, and every step it takes off a link is a chance to take the link with it.</p>
+  <h2>See also</h2>
+  <ul class="plain">
+    <li><a href="#">Search engine indexing</a></li>
+    <li><a href="#">Web scraping</a></li>
+    <li><a href="#">Common Crawl</a></li>
+    <li><a href="#">Internet Archive</a> and the <a href="#">Wayback Machine</a></li>
+    <li><a href="#">Sitemaps</a></li>
+  </ul>
+  <h2>References</h2>
+  <ol class="refs cols">
+    <li>Olston, Christopher; Najork, Marc (2010). <a href="#">"Web Crawling"</a>. <i>Foundations and Trends in Information Retrieval</i>. 4 (3): 175–246. doi:10.1561/1500000017.</li>
+    <li>Manning, Christopher D.; Raghavan, Prabhakar; Schütze, Hinrich (2008). <i>Introduction to Information Retrieval</i>. Cambridge University Press. ch. 20. ISBN 978-0-521-86571-5.</li>
+    <li>Gray, Matthew (1996). <a href="#">"Internet Growth Summary"</a>. MIT. <a href="#">Archived from the original</a> on 4 January 1997. Retrieved 12 March 2025.</li>
+    <li>Pinkerton, Brian (1994). <a href="#">"Finding what people want: Experiences with the WebCrawler"</a>. <i>Proceedings of the Second International World Wide Web Conference</i>. Chicago.</li>
+    <li>Koster, Martijn (1994). <a href="#">"A Standard for Robot Exclusion"</a>. robotstxt.org. Retrieved 8 February 2025.</li>
+    <li>Koster, M.; Illyes, G.; Zeller, H.; Sassman, L. (2022). <a href="#">RFC 9309: Robots Exclusion Protocol</a>. IETF. doi:10.17487/RFC9309.</li>
+    <li>Brin, Sergey; Page, Lawrence (1998). <a href="#">"The anatomy of a large-scale hypertextual Web search engine"</a>. <i>Computer Networks and ISDN Systems</i>. 30 (1–7): 107–117. doi:10.1016/S0169-7552(98)00110-X.</li>
+    <li>Heydon, Allan; Najork, Marc (1999). <a href="#">"Mercator: A scalable, extensible Web crawler"</a>. <i>World Wide Web</i>. 2 (4): 219–229. doi:10.1023/A:1019213109274.</li>
+    <li>Boldi, P.; Codenotti, B.; Santini, M.; Vigna, S. (2004). <a href="#">"UbiCrawler: a scalable fully distributed Web crawler"</a>. <i>Software: Practice and Experience</i>. 34 (8): 711–726. doi:10.1002/spe.587.</li>
+    <li>Lee, H.-T.; Leonard, D.; Wang, X.; Loguinov, D. (2009). <a href="#">"IRLbot: Scaling to 6 billion pages and beyond"</a>. <i>ACM Transactions on the Web</i>. 3 (3). doi:10.1145/1541822.1541823.</li>
+    <li>Najork, Marc; Wiener, Janet L. (2001). <a href="#">"Breadth-first crawling yields high-quality pages"</a>. <i>Proceedings of WWW10</i>. pp. 114–118. doi:10.1145/371920.371965.</li>
+    <li>Cho, Junghoo; Garcia-Molina, Hector (2003). <a href="#">"Effective page refresh policies for Web crawlers"</a>. <i>ACM Transactions on Database Systems</i>. 28 (4): 390–426. doi:10.1145/958942.958945.</li>
+    <li>Castillo, Carlos (2004). <a href="#">Effective Web Crawling</a> (PhD thesis). University of Chile. <a href="#">Archived</a> (PDF) from the original on 18 May 2014.</li>
+    <li>Foelix, Rainer F. (2011). <i>Biology of Spiders</i> (3rd ed.). Oxford University Press. pp. 150–152. ISBN 978-0-19-973482-5.</li>
+  </ol>
+  <h2>Further reading</h2>
+  <ul class="plain">
+    <li>Levy, Steven (2011). <i>In the Plex</i>. New York: Simon &amp; Schuster. ISBN 978-1-4165-9658-5. OCLC 682892628.</li>
+    <li>Battelle, John (2005). <i>The Search</i>. New York: Portfolio. ISBN 978-1-59184-088-5.</li>
+    <li>Hillyard, Paul (1994). <i>The Book of the Spider</i>. New York: Random House. ISBN 978-0-679-40881-0.</li>
+    <li>Chakrabarti, Soumen (2002). <i>Mining the Web</i>. Morgan Kaufmann. ISBN 978-1-55860-754-5.</li>
+    <li>Baeza-Yates, R.; Ribeiro-Neto, B. (2011). <i>Modern Information Retrieval</i> (2nd ed.). Addison-Wesley. ISBN 978-0-321-41691-9.</li>
+  </ul>
+  <h2>External links</h2>
+  <ul class="plain">
+    <li><a href="#">The Web Robots Pages</a> at robotstxt.org</li>
+    <li><a href="#">Common Crawl</a>, an open repository of web crawl data since 2008</li>
+    <li><a href="#">Heritrix</a>, the Internet Archive's open-source crawler</li>
+  </ul>
+</template>
+
+<script src="core/crawler.js"></script>
+<script src="web/app.js"></script>
+</body>
+</html>
