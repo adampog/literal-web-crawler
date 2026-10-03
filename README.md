@@ -5,7 +5,7 @@ grips links and IDs with its feet, and tears them off as it goes.
 
 It comes in two forms that share one engine:
 
-- **In the browser** ([`index.html`](index.html)): the spider crawls a page
+- **In the browser** ([play it here](https://adampog.github.io/literal-web-crawler/)): the spider crawls a page
   of references, or anything you paste in.
 - **As an [Omarchy](https://omarchy.org) plugin**: the spider crawls a
   snapshot of *your screen*, tearing glowing chunks out of your windows.
