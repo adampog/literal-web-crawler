@@ -33,7 +33,7 @@ Item {
     respectInhibitors: true // a playing video keeps the spider away
 
     onIsIdleChanged: {
-      if (isIdle) {
+      if (idle.isIdle) {
         gate.running = true
       } else if (root.showing) {
         root.showing = false

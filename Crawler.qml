@@ -23,9 +23,14 @@ Item {
 
   readonly property string pluginId: (manifest && manifest.id) || "io.github.adampog.literal-web-crawler"
 
-  // The host reads `opened`; the screens are only created while it is true.
+  // The host reads `opened` to decide whether a toggle opens or closes us, so
+  // it turns true the moment we are asked to open, while the screenshot is
+  // still being taken. The screens only appear once `captured` is true too.
   property bool opened: false
+  property bool captured: false
   property bool screensaver: false
+  // Set when an open arrives while the previous capture is still finishing.
+  property bool captureAgain: false
 
   // Screenshots go to a per-user tmpfs folder; each open gets a fresh stamp so
   // QML never shows a cached picture from the last run.
@@ -42,23 +47,42 @@ Item {
 
   readonly property string focusedScreenName: Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name || "") : ""
 
+  function log(message) {
+    console.info("literal-web-crawler: " + message)
+  }
+
   function open(payloadJson) {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
     root.screensaver = payload.mode === "screensaver"
-    if (root.opened || capture.running) return
+    if (root.opened) return
 
+    root.opened = true
+    root.captured = false
     root.paused = false
+    root.log("open (" + (root.screensaver ? "screensaver" : "interactive") + ")")
+    if (capture.running) {
+      // A close-then-open faster than grim: shoot again once it finishes.
+      root.captureAgain = true
+      return
+    }
+    root.startCapture()
+  }
+
+  // Capture first, then show: the overlay must not be in its own screenshot.
+  function startCapture() {
     root.captureStamp = String(Date.now())
     var names = []
     for (var i = 0; i < Quickshell.screens.length; i++) names.push(Quickshell.screens[i].name)
-    // Capture first, then show: the overlay must not be in its own screenshot.
     capture.command = ["bash", "-c", root.captureScript, "literal-web-crawler", root.captureDir, root.captureStamp].concat(names)
     capture.running = true
   }
 
   function close() {
+    if (root.opened) root.log("close")
     root.opened = false
+    root.captured = false
+    root.captureAgain = false
     cleanup.running = true
   }
 
@@ -88,13 +112,22 @@ Item {
   Process {
     id: capture
     onExited: function(exitCode) {
-      if (exitCode === 0) {
-        root.opened = true
+      if (root.captureAgain) {
+        root.captureAgain = false
+        if (root.opened) root.startCapture()
         return
       }
+      // Closed while grim was still running: nothing to show.
+      if (!root.opened) return
+      if (exitCode === 0) {
+        root.log("captured " + Quickshell.screens.length + " screen(s)")
+        root.captured = true
+        return
+      }
+      root.log("capture failed with exit code " + exitCode)
       var why = exitCode === 127 ? "Install grim to let the spider see your screen" : "Could not take a screenshot"
       Quickshell.execDetached([root.omarchyPath + "/bin/omarchy-notification-send", "Literal Web Crawler", why])
-      if (root.shell && typeof root.shell.hide === "function") root.shell.hide(root.pluginId)
+      root.dismiss()
     }
   }
 
@@ -105,7 +138,7 @@ Item {
 
   // One window per monitor, created on open and destroyed on close.
   Variants {
-    model: root.opened ? Quickshell.screens : []
+    model: root.opened && root.captured ? Quickshell.screens : []
 
     CrawlerScreen {
       required property var modelData

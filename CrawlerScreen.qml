@@ -19,17 +19,18 @@ PanelWindow {
   property var map: null // footholds and chunks from core/screen-map.js
   property var spider: null // the engine from core/crawler.js
   property var holeItems: []
-  property int seenRepair: host.repairGeneration
+  property bool probeWarned: false // log a failed pixel read once, not every retry
+  property int seenRepair: win.host.repairGeneration
   // First pointer position seen in screensaver mode; moving away from it wakes up.
   property point wakeOrigin: Qt.point(-1, -1)
-  property bool hudVisible: !host.screensaver && focused
+  property bool hudVisible: !win.host.screensaver && win.focused
 
   anchors { top: true; left: true; right: true; bottom: true }
   color: Color.background
   exclusionMode: ExclusionMode.Ignore
   WlrLayershell.layer: WlrLayer.Overlay
   WlrLayershell.namespace: "literal-web-crawler"
-  WlrLayershell.keyboardFocus: focused ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+  WlrLayershell.keyboardFocus: win.focused ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
   // Spider colors: theme ink and fill, neon legs, theme accent for the glow.
   readonly property var theme: ({
@@ -66,15 +67,41 @@ PanelWindow {
     }
   }
 
-  // Read the screenshot's pixels (downscaled) and build the foothold map, then
-  // drop the spider in the middle of the screen.
+  function log(message) {
+    console.info("literal-web-crawler [" + (win.screen ? win.screen.name : "?") + "]: " + message)
+  }
+
+  // Read the screenshot's pixels (downscaled) and build the foothold map.
+  // Only called from the probe's onPaint, once its context and image are ready.
   function analyse() {
-    var ctx = probe.getContext("2d")
-    ctx.drawImage(win.shotUrl, 0, 0, probe.width, probe.height)
-    var data = ctx.getImageData(0, 0, probe.width, probe.height)
-    win.map = ScreenMap.buildScreenMap(data.data, probe.width, probe.height, win.width / probe.width)
+    try {
+      var ctx = probe.getContext("2d")
+      if (!ctx) return
+      ctx.drawImage(win.shotUrl, 0, 0, probe.width, probe.height)
+      var data = ctx.getImageData(0, 0, probe.width, probe.height)
+      if (!data || !data.data || data.data.length < probe.width * probe.height * 4) {
+        if (!win.probeWarned) win.log("pixels not readable yet, retrying")
+        win.probeWarned = true
+        return
+      }
+      win.map = ScreenMap.buildScreenMap(data.data, probe.width, probe.height, win.width / probe.width)
+      win.log("footholds ready after " + probeTimer.elapsed + " ms")
+      // A spider that started without footholds puts its feet on real edges now.
+      if (win.spider) win.spider.plantAll()
+    } catch (e) {
+      if (!win.probeWarned) win.log("could not read the screenshot, retrying: " + e)
+      win.probeWarned = true
+    }
+    win.startSpider()
+  }
+
+  // Drop the spider in the middle of the screen. Safe to call more than once.
+  // Without a map it still walks, it just has nothing to grip or tear yet.
+  function startSpider() {
+    if (win.spider || win.width < 2 || win.height < 2) return
     win.spider = Core.createCrawler(win.makeHost())
     win.spider.placeAt(win.width * 0.5, win.height * 0.5)
+    if (!win.map) win.log("starting without footholds")
   }
 
   // Put back every torn piece on this screen.
@@ -91,15 +118,15 @@ PanelWindow {
 
   // Copy settings from the shared root and move the visuals to match the engine.
   function tick(dt) {
-    if (win.seenRepair !== host.repairGeneration) {
-      win.seenRepair = host.repairGeneration
+    if (win.seenRepair !== win.host.repairGeneration) {
+      win.seenRepair = win.host.repairGeneration
       win.repair()
     }
     var s = win.spider
-    s.size = host.size
-    s.ripRate = host.ripRate
-    s.mode = host.follow ? "follow" : "roam"
-    if (!host.paused) s.step(Math.min(1 / 30, dt))
+    s.size = win.host.size
+    s.ripRate = win.host.ripRate
+    s.mode = win.host.follow ? "follow" : "roam"
+    if (!win.host.paused) s.step(Math.min(1 / 30, dt))
     for (var i = 0; i < s.pieces.length; i++) {
       var p = s.pieces[i]
       p.visual.x = p.x
@@ -111,6 +138,13 @@ PanelWindow {
   }
 
   // Analysis canvas: a third of the screen's size, hidden behind the screenshot.
+  //
+  // Reading its pixels needs three things at once: the window has its real
+  // size, the canvas can draw (`available`), and the image has loaded. Qt
+  // drops a requestPaint() made before the canvas is available, and may never
+  // emit imageLoaded() for an image it loaded straight away, so waiting on
+  // those signals can leave the spider unborn with no error. Instead a short
+  // timer checks all three and asks for a paint until the map exists.
   Canvas {
     id: probe
     width: Math.max(1, Math.round(win.width / 3))
@@ -118,15 +152,28 @@ PanelWindow {
     z: -1
     property bool requested: false
 
-    function start() {
-      if (requested || win.width < 2 || win.height < 2) return
-      requested = true
-      loadImage(win.shotUrl)
+    onPaint: if (!win.map && isImageLoaded(win.shotUrl)) win.analyse()
+  }
+
+  Timer {
+    id: probeTimer
+    property int elapsed: 0
+    interval: 50
+    repeat: true
+    running: win.map === null && elapsed < 10000
+
+    onTriggered: {
+      elapsed += interval
+      if (!probe.requested && win.width > 1 && win.height > 1) {
+        probe.requested = true
+        probe.loadImage(win.shotUrl)
+      }
+      if (probe.requested && probe.available && probe.isImageLoaded(win.shotUrl)) probe.requestPaint()
+      // Never leave the screen empty: after 3 s the spider walks anyway, and
+      // picks up footholds if the analysis succeeds later.
+      if (elapsed >= 3000) win.startSpider()
+      if (elapsed >= 10000) win.log("gave up reading the screenshot")
     }
-    Component.onCompleted: start()
-    onWidthChanged: start()
-    onImageLoaded: requestPaint()
-    onPaint: if (isImageLoaded(win.shotUrl) && !win.map) win.analyse()
   }
 
   Image {
@@ -207,17 +254,17 @@ PanelWindow {
     acceptedButtons: Qt.AllButtons
 
     onPositionChanged: function(mouse) {
-      if (host.screensaver) {
+      if (win.host.screensaver) {
         // The compositor sends a motion event when the surface appears; only
         // a real move away from that first point wakes the screen.
         if (win.wakeOrigin.x < 0) win.wakeOrigin = Qt.point(mouse.x, mouse.y)
-        else if (Math.hypot(mouse.x - win.wakeOrigin.x, mouse.y - win.wakeOrigin.y) > 12) host.dismiss()
+        else if (Math.hypot(mouse.x - win.wakeOrigin.x, mouse.y - win.wakeOrigin.y) > 12) win.host.dismiss()
         return
       }
       if (win.spider) win.spider.setPointer(mouse.x, mouse.y)
     }
     onPressed: function(mouse) {
-      if (host.screensaver) host.dismiss()
+      if (win.host.screensaver) win.host.dismiss()
       else if (win.spider) win.spider.sendTo(mouse.x, mouse.y)
     }
   }
@@ -229,36 +276,36 @@ PanelWindow {
 
     Keys.onPressed: function(event) {
       event.accepted = true
-      if (host.screensaver) {
-        host.dismiss()
+      if (win.host.screensaver) {
+        win.host.dismiss()
         return
       }
       switch (event.key) {
       case Qt.Key_Escape:
       case Qt.Key_Q:
-        host.dismiss()
+        win.host.dismiss()
         break
       case Qt.Key_Space:
-        host.paused = !host.paused
+        win.host.paused = !win.host.paused
         break
       case Qt.Key_R:
-        host.repairGeneration++
+        win.host.repairGeneration++
         break
       case Qt.Key_F:
-        host.follow = !host.follow
+        win.host.follow = !win.host.follow
         break
       case Qt.Key_Plus:
       case Qt.Key_Equal:
-        host.size = Math.min(2.5, host.size + 0.1)
+        win.host.size = Math.min(2.5, win.host.size + 0.1)
         break
       case Qt.Key_Minus:
-        host.size = Math.max(0.5, host.size - 0.1)
+        win.host.size = Math.max(0.5, win.host.size - 0.1)
         break
       case Qt.Key_BracketRight:
-        host.ripRate = Math.min(1, host.ripRate + 0.1)
+        win.host.ripRate = Math.min(1, win.host.ripRate + 0.1)
         break
       case Qt.Key_BracketLeft:
-        host.ripRate = Math.max(0, host.ripRate - 0.1)
+        win.host.ripRate = Math.max(0, win.host.ripRate - 0.1)
         break
       case Qt.Key_H:
         win.hudVisible = !win.hudVisible
@@ -292,10 +339,10 @@ PanelWindow {
       text: {
         var c = Core.CRAWLER_PALETTE
         var key = function(k, color) { return "<font color='" + color + "'>" + k + "</font>" }
-        return key("Esc", c[1]) + " close   " + key("Space", c[0]) + (host.paused ? " resume   " : " pause   ")
-          + key("R", c[2]) + " repair   " + key("F", c[3]) + (host.follow ? " roam   " : " follow mouse   ")
-          + key("+/-", c[0]) + " size " + host.size.toFixed(1) + "   "
-          + key("[ ]", c[1]) + " rip " + Math.round(host.ripRate * 100) + "%   "
+        return key("Esc", c[1]) + " close   " + key("Space", c[0]) + (win.host.paused ? " resume   " : " pause   ")
+          + key("R", c[2]) + " repair   " + key("F", c[3]) + (win.host.follow ? " roam   " : " follow mouse   ")
+          + key("+/-", c[0]) + " size " + win.host.size.toFixed(1) + "   "
+          + key("[ ]", c[1]) + " rip " + Math.round(win.host.ripRate * 100) + "%   "
           + key("H", c[2]) + " hide"
       }
     }
