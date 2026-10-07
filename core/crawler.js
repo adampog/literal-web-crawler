@@ -23,7 +23,7 @@
  * Top-level declarations use `var` and `function` so QML exposes them on the
  * import namespace.
  */
-/* exported CRAWLER_PALETTE, createCrawler, drawSpider */
+/* exported CRAWLER_PALETTE, createCrawler, drawSpider, legJoints */
 
 /** Neon colors for legs and torn pieces: cyan, magenta, violet, amber. */
 var CRAWLER_PALETTE = ["#55dcf2", "#e45cc0", "#9a82ff", "#ffb547"];
@@ -39,7 +39,7 @@ var LEG_LAYOUT = [
   { f: -0.78, l: 0.62 }
 ];
 
-/** Where each leg joins the body, forward offset as a fraction of body length. */
+/** Forward spread of the leg roots within the cephalothorax. */
 var HIP_OFFSETS = [0.42, 0.16, -0.08, -0.3];
 
 /** Seconds a torn piece drifts at full opacity, then how long it takes to fade. */
@@ -114,9 +114,48 @@ function createCrawler(host) {
     return 62 * c.size;
   };
 
+  /** Front legs are longer; stance, stepping and drawing use the same reach. */
+  c.legReach = function (f) {
+    return c.reach() * (f.i === 0 ? 1.5 : 1);
+  };
+
+  /** All eight legs join the small cephalothorax, ahead of the abdomen. */
+  c.hip = function (f) {
+    var fw = (6 + HIP_OFFSETS[f.i] * 20) * c.size;
+    var lat = f.side * 6 * c.size;
+    return { x: c.x + Math.cos(c.a) * fw - Math.sin(c.a) * lat,
+      y: c.y + Math.sin(c.a) * fw + Math.cos(c.a) * lat };
+  };
+
+  // Keep footholds on their own side and inside the two-bone IK envelope.
+  // This also handles turning or shrinking while a foot is planted.
+  function reachable(f, x, y) {
+    var hip = c.hip(f);
+    var fx = Math.cos(c.a);
+    var fy = Math.sin(c.a);
+    var fw = (x - hip.x) * fx + (y - hip.y) * fy;
+    var lat = Math.max(14 * c.size, (-(x - hip.x) * fy + (y - hip.y) * fx) * f.side);
+    var max = c.legReach(f) * 1.4 * 0.98;
+    lat = Math.min(lat, max);
+    var maxFw = Math.sqrt(Math.max(0, max * max - lat * lat));
+    fw = clamp(fw, -maxFw, maxFw);
+    return { x: hip.x + fx * fw - fy * lat * f.side,
+      y: hip.y + fy * fw + fx * lat * f.side };
+  }
+
+  function foothold(f, x, y, radius) {
+    var target = reachable(f, x, y);
+    var hold = host.footholdNear(target.x, target.y, radius);
+    if (hold) {
+      var safe = reachable(f, hold.x, hold.y);
+      if (Math.hypot(safe.x - hold.x, safe.y - hold.y) < 0.001) return hold;
+    }
+    return { x: target.x, y: target.y, chunk: null };
+  }
+
   /** Where a foot would rest if the spider stood still right now. */
   c.idealFoot = function (f) {
-    var r = c.reach();
+    var r = c.legReach(f);
     var fx = Math.cos(c.a);
     var fy = Math.sin(c.a);
     var fw = LEG_LAYOUT[f.i].f * r;
@@ -129,7 +168,7 @@ function createCrawler(host) {
     for (var k = 0; k < c.feet.length; k++) {
       var f = c.feet[k];
       var id = c.idealFoot(f);
-      var hold = host.footholdNear(id.x, id.y, c.reach() * 0.6);
+      var hold = foothold(f, id.x, id.y, c.legReach(f) * 0.6);
       f.x = hold ? hold.x : id.x;
       f.y = hold ? hold.y : id.y;
       f.chunk = hold ? hold.chunk : null;
@@ -234,7 +273,7 @@ function createCrawler(host) {
     } else if (f.chunk && !f.chunk.gone && Math.random() < c.ripRate * 0.6) {
       rip(f);
     }
-    var hold = host.footholdNear(px, py, c.reach() * 0.55);
+    var hold = foothold(f, px, py, c.legReach(f) * 0.55);
     f.toX = hold ? hold.x : px;
     f.toY = hold ? hold.y : py;
     f.chunk = hold ? hold.chunk : null;
@@ -284,13 +323,13 @@ function createCrawler(host) {
 
     // 3. Move the legs. A planted foot steps once it falls too far behind its
     //    ideal spot, but only while the other gait group is on the ground.
-    var r = c.reach();
-    var stepDist = r * 0.42;
     var swinging = [0, 0];
     var n;
     for (n = 0; n < c.feet.length; n++) if (c.feet[n].swing) swinging[c.feet[n].group]++;
     for (n = 0; n < c.feet.length; n++) {
       var f = c.feet[n];
+      var r = c.legReach(f);
+      var stepDist = r * 0.42;
       var id = c.idealFoot(f);
       if (f.swing) {
         f.t = Math.min(1, f.t + dt / f.dur);
@@ -323,6 +362,12 @@ function createCrawler(host) {
           swinging[f.group]++;
         }
       }
+      var safe = reachable(f, f.x, f.y);
+      if (Math.hypot(safe.x - f.x, safe.y - f.y) > 0.001) {
+        f.chunk = null;
+      }
+      f.x = safe.x;
+      f.y = safe.y;
     }
 
     // 4. Torn pieces: hang from the carrying foot, or drift, spin and fade.
@@ -358,6 +403,48 @@ function createCrawler(host) {
 }
 
 /**
+ * Three-segment planar IK. Aim the short terminal segment slightly inward,
+ * leaving an outward ankle; solve hip-to-ankle with two unequal bones.
+ * All segment lengths scale with the individual leg's reach, including in swing.
+ */
+function legJoints(c, f) {
+  var hip = c.hip(f);
+  var r = c.legReach(f);
+  var upper = r * 0.55;
+  var middle = r * 0.5;
+  var tip = r * 0.35;
+  var dx = f.x - hip.x;
+  var dy = f.y - hip.y;
+  var d = Math.hypot(dx, dy) || 1;
+  var ux = dx / d;
+  var uy = dy / d;
+  var px = -uy;
+  var py = ux;
+  if ((px * -Math.sin(c.a) + py * Math.cos(c.a)) * f.side < 0) {
+    px = -px;
+    py = -py;
+  }
+  var ankle = { x: f.x - ux * tip * Math.sqrt(0.96) + px * tip * 0.2,
+    y: f.y - uy * tip * Math.sqrt(0.96) + py * tip * 0.2 };
+  dx = ankle.x - hip.x;
+  dy = ankle.y - hip.y;
+  d = Math.hypot(dx, dy);
+  ux = dx / d;
+  uy = dy / d;
+  px = -uy;
+  py = ux;
+  if ((px * -Math.sin(c.a) + py * Math.cos(c.a)) * f.side < 0) {
+    px = -px;
+    py = -py;
+  }
+  var along = (upper * upper - middle * middle + d * d) / (2 * d);
+  var height = Math.sqrt(Math.max(0, upper * upper - along * along));
+  var knee = { x: hip.x + ux * along + px * height,
+    y: hip.y + uy * along + py * height };
+  return [hip, knee, ankle, { x: f.x, y: f.y }];
+}
+
+/**
  * Draw the spider with a 2D canvas context. Works with both the browser's
  * CanvasRenderingContext2D and QML's Context2D, so it sticks to the API the
  * two share (no ellipse(): QML's takes a bounding box instead of radii).
@@ -367,11 +454,8 @@ function createCrawler(host) {
  */
 function drawSpider(ctx, c, theme) {
   var s = c.size;
-  var L = c.reach() * 0.7; // length of each leg segment
   var fx = Math.cos(c.a);
   var fy = Math.sin(c.a);
-  var rx = -fy;
-  var ry = fx;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
@@ -389,54 +473,34 @@ function drawSpider(ctx, c, theme) {
     ctx.globalAlpha = 1;
   }
 
-  // Legs: hip -> knee -> foot, solved with two-bone inverse kinematics.
+  // Legs: hip -> knee -> ankle -> foot, using the shared three-segment IK.
   for (var n = 0; n < c.feet.length; n++) {
     var f = c.feet[n];
-    var hx = c.x + fx * HIP_OFFSETS[f.i] * 22 * s + rx * f.side * 4 * s;
-    var hy = c.y + fy * HIP_OFFSETS[f.i] * 22 * s + ry * f.side * 4 * s;
-    var ux = f.x - hx;
-    var uy = f.y - hy;
-    var dd = Math.hypot(ux, uy) || 1;
-    ux /= dd;
-    uy /= dd;
-    var kx;
-    var ky;
-    if (dd >= 2 * L) {
-      // Fully stretched: the knee sits halfway.
-      kx = (hx + f.x) / 2;
-      ky = (hy + f.y) / 2;
-    } else {
-      var half = dd / 2;
-      // A lifted leg bends higher, which reads as a raised knee from above.
-      var h = Math.sqrt(L * L - half * half) * (f.swing ? 1.25 : 1);
-      var px = -uy;
-      var py = ux;
-      // Knees point away from the body...
-      if ((px * rx + py * ry) * f.side < 0) {
-        px = -px;
-        py = -py;
-      }
-      // ...front knees bend forward, back knees backward.
-      if ((px * fx + py * fy) * (f.i < 2 ? 1 : -1) < -0.6) {
-        px = -px;
-        py = -py;
-      }
-      kx = hx + ux * half + px * h;
-      ky = hy + uy * half + py * h;
-    }
+    var joints = legJoints(c, f);
+    var hip = joints[0];
+    var knee = joints[1];
+    var ankle = joints[2];
     var legColor = theme.legs ? theme.legs[f.i] : theme.ink;
     ctx.strokeStyle = legColor;
     ctx.fillStyle = legColor;
     ctx.lineWidth = 1.7 * s;
     ctx.beginPath();
-    ctx.moveTo(hx, hy);
-    ctx.lineTo(kx, ky);
+    ctx.moveTo(hip.x, hip.y);
+    ctx.lineTo(knee.x, knee.y);
+    ctx.lineTo(ankle.x, ankle.y);
+    ctx.stroke();
+    // The slender final segment makes the extra bend readable at small sizes.
+    ctx.lineWidth = 1.2 * s;
+    ctx.beginPath();
+    ctx.moveTo(ankle.x, ankle.y);
     ctx.lineTo(f.x, f.y);
     ctx.stroke();
     ctx.fillStyle = theme.ink;
-    ctx.beginPath();
-    ctx.arc(kx, ky, 1.7 * s, 0, Math.PI * 2);
-    ctx.fill();
+    for (var j = 1; j <= 2; j++) {
+      ctx.beginPath();
+      ctx.arc(joints[j].x, joints[j].y, (j === 1 ? 1.9 : 1.5) * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.fillStyle = legColor;
     ctx.beginPath();
     ctx.arc(f.x, f.y, (f.swing ? 2.6 : 1.9) * s, 0, Math.PI * 2);
@@ -448,26 +512,38 @@ function drawSpider(ctx, c, theme) {
     }
   }
 
-  // Body: abdomen and cephalothorax as scaled circles, then a glowing
-  // abdomen mark and two eyes.
+  // Translucent round abdomen, smaller cephalothorax, red hourglass and eyes.
   ctx.save();
   ctx.translate(c.x, c.y);
   ctx.rotate(c.a);
   ctx.strokeStyle = theme.ink;
   ctx.fillStyle = theme.fill;
   ctx.lineWidth = 1.7 * s;
-  oval(ctx, -15 * s, 0, 12 * s, 9 * s);
-  oval(ctx, 2 * s, 0, 8 * s, 6.5 * s);
-  ctx.shadowColor = theme.accent;
+  ctx.globalAlpha = 0.25;
+  oval(ctx, -20 * s, 0, 19 * s, 17 * s);
+  oval(ctx, 6 * s, 0, 10 * s, 8 * s);
+  ctx.globalAlpha = 1;
+  // Re-outline at full strength; the page stays visible through the body.
+  ctx.fillStyle = "transparent";
+  oval(ctx, -20 * s, 0, 19 * s, 17 * s);
+  oval(ctx, 6 * s, 0, 10 * s, 8 * s);
+  ctx.shadowColor = "#ff304b";
   ctx.shadowBlur = 10 * s;
-  ctx.fillStyle = theme.accent;
+  ctx.fillStyle = "#ff304b";
   ctx.beginPath();
-  ctx.arc(-15 * s, 0, 3.4 * s, 0, Math.PI * 2);
+  ctx.moveTo(-29 * s, -7 * s);
+  ctx.lineTo(-11 * s, -7 * s);
+  ctx.lineTo(-20 * s, 0);
+  ctx.lineTo(-11 * s, 7 * s);
+  ctx.lineTo(-29 * s, 7 * s);
+  ctx.lineTo(-20 * s, 0);
+  ctx.lineTo(-29 * s, -7 * s);
   ctx.fill();
+  ctx.shadowColor = theme.accent;
   ctx.fillStyle = theme.eyes || theme.accent;
   for (var e = -1; e <= 1; e += 2) {
     ctx.beginPath();
-    ctx.arc(8 * s, e * 2.4 * s, 1.4 * s, 0, Math.PI * 2);
+    ctx.arc(14 * s, e * 2.4 * s, 1.4 * s, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.shadowBlur = 0;

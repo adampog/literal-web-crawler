@@ -142,3 +142,91 @@ test("drawSpider only uses canvas calls QML's Context2D also has", () => {
   for (const name of used) assert.ok(allowed.has(name), `uses ${name}`);
   assert.ok(used.has("arc") && used.has("lineTo"));
 });
+
+test("front pair has one-and-a-half times the reach of every other leg", () => {
+  const spider = core.createCrawler(gridHost());
+  spider.placeAt(300, 300);
+  for (const f of spider.feet) {
+    assert.equal(spider.legReach(f), spider.reach() * (f.i === 0 ? 1.5 : 1));
+  }
+});
+
+test("unequal legs stay reachable and outside the body through turns and size changes", () => {
+  for (const size of [0.5, 1, 2.5]) {
+    const spider = core.createCrawler(gridHost());
+    spider.size = size;
+    spider.placeAt(600, 400);
+    spider.mode = "follow";
+    const stepped = new Set();
+    const planted = new Set();
+    const groups = new Set();
+    for (let frame = 0; frame < 900; frame++) {
+      const a = Math.floor(frame / 120) * Math.PI / 2;
+      spider.setPointer(600 + Math.cos(a) * 300, 400 + Math.sin(a) * 250);
+      if (frame === 450) spider.size = 0.5;
+      spider.step(1 / 30);
+      const swinging = new Set();
+      for (const f of spider.feet) {
+        const hip = spider.hip(f);
+        assert.ok(Math.hypot(f.x - hip.x, f.y - hip.y) <= spider.legReach(f) * 1.4 + 1e-6, "foot beyond its two segments");
+        const lateral = (-(f.x - spider.x) * Math.sin(spider.a) + (f.y - spider.y) * Math.cos(spider.a)) * f.side;
+        assert.ok(lateral >= 20 * spider.size - 1e-6, `foot crossed the body: size ${size}, frame ${frame}, leg ${f.side}/${f.i}, lateral ${lateral}, min ${20 * spider.size}`);
+        if (f.swing) { stepped.add(f); swinging.add(f.group); groups.add(f.group); }
+        else if (f.chunk) planted.add(f);
+      }
+      assert.ok(swinging.size <= 1, "both gait groups swinging");
+    }
+    assert.equal(stepped.size, 8, "every leg must step");
+    assert.equal(planted.size, 8, "every leg must grip");
+    assert.equal(groups.size, 2, "both groups must take turns");
+  }
+});
+
+test("body stays translucent and hourglass stays red in light and dark themes", () => {
+  const spider = core.createCrawler(gridHost());
+  spider.placeAt(300, 300);
+  for (const fill of ["#ffffff", "#101820"]) {
+    const paints = [];
+    let path = [];
+    const ctx = new Proxy({ globalAlpha: 1 }, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (prop === "beginPath") return () => { path = []; };
+        if (prop === "moveTo" || prop === "lineTo") return (...args) => { path.push(args); };
+        if (prop === "fill") return () => { paints.push({ color: target.fillStyle, alpha: target.globalAlpha, path }); };
+        return () => {};
+      }
+    });
+    core.drawSpider(ctx, spider, { ink: "#888888", fill, accent: "#00ff00", legs: core.CRAWLER_PALETTE });
+    const body = paints.filter((p) => p.color === fill);
+    assert.equal(body.length, 2);
+    assert.ok(body.every((p) => p.alpha > 0 && p.alpha < 1), "opaque body hides the page");
+    const hourglass = paints.find((p) => p.color === "#ff304b");
+    assert.ok(hourglass, "theme replaced red mark");
+    assert.equal(hourglass.path.length, 7, "hourglass must have two lobes joined at a waist");
+    assert.deepEqual(hourglass.path[2], hourglass.path[5], "lobes meet at the waist");
+    assert.equal(hourglass.alpha, 1);
+  }
+});
+
+test("three-segment IK preserves every bone length and ends at the planted foot", () => {
+  const spider = core.createCrawler(gridHost());
+  spider.placeAt(600, 400);
+  spider.mode = "follow";
+  for (let frame = 0; frame < 720; frame++) {
+    const a = Math.floor(frame / 90) * Math.PI / 2;
+    spider.setPointer(600 + Math.cos(a) * 300, 400 + Math.sin(a) * 250);
+    spider.step(1 / 30);
+    for (const f of spider.feet) {
+      const joints = core.legJoints(spider, f);
+      assert.equal(joints.length, 4, "hip, knee, ankle, foot");
+      for (let i = 0; i < 3; i++) {
+        const length = Math.hypot(joints[i+1].x - joints[i].x, joints[i+1].y - joints[i].y);
+        const expected = spider.legReach(f) * [0.55, 0.5, 0.35][i];
+        assert.ok(Math.abs(length - expected) < 1e-6, `bone ${i}: ${length} != ${expected}`);
+      }
+      assert.equal(joints[3].x, f.x);
+      assert.equal(joints[3].y, f.y);
+    }
+  }
+});

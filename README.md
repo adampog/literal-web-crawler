@@ -79,7 +79,7 @@ omarchy plugin remove io.github.adampog.literal-web-crawler
 
 - [`core/crawler.js`](core/crawler.js) is the spider: steering, an
   alternating tetrapod gait (four legs move while the other four hold on, like
-  a real spider), two-bone IK for the legs, and the physics of torn pieces.
+  a real spider), three-segment IK for the legs, and the physics of torn pieces.
   It is a plain script with no DOM or QML, so the browser loads it with a
   `<script>` tag and QML imports it directly.
 - The engine asks a *host* for footholds and to tear things off. In the
