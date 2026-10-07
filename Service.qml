@@ -56,8 +56,8 @@ Item {
 
     onExited: function(exitCode) {
       if (exitCode !== 0 || !idle.isIdle || !root.shell) return
-      root.showing = true
-      root.shell.summon(root.pluginId, JSON.stringify({ mode: "screensaver" }))
+      if (root.shell.isPluginOpen(root.pluginId)) return
+      root.showing = root.shell.summon(root.pluginId, JSON.stringify({ mode: "screensaver" }))
     }
   }
 }

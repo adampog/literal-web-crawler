@@ -7,11 +7,12 @@ function response(html = "<p>Earth is a planet. Earth has water.</p>") {
   return JSON.stringify({title:"Earth", key:"Earth", latest:{id:123}, license:{title:"CC BY-SA 4.0"}, html});
 }
 
-function harness() {
+function harness(parse) {
   const requests = [];
   const states = [];
   let timer = null;
   const client = core.createArticleClient({
+    parse,
     request() {
       const req = {headers:{}, open(...args) { this.args = args; }, setRequestHeader(k,v) { this.headers[k] = v; }, send() {}, abort() { this.aborted = true; }};
       requests.push(req);
@@ -36,6 +37,36 @@ test("one asynchronous identified REST request per search, no parallel or automa
   assert.equal(h.states.at(-1).article.title, "Earth");
   assert.equal(h.states.at(-1).busy, false);
   assert.equal(h.requests.length, 1);
+});
+
+test("worker parsing is asynchronous and late results are fenced after close", () => {
+  let callback;
+  const h = harness((body, done) => { callback = done; });
+  h.client.search("Earth"); h.finish(200,response());
+  assert.equal(h.states.at(-1).busy,true,"main thread parsed the article synchronously");
+  h.client.cancel();
+  callback(core.parseArticle(response()),"");
+  assert.equal(h.states.at(-1).article,null);
+});
+
+test("article layout yields between bounded batches and preserves the full layout", () => {
+  const article = core.parseArticle(response("<p>" + "Earth water planet. ".repeat(200) + "</p>"));
+  const job = core.createArticleLayout(article,"earth",1000,600,w => w.length * 10);
+  assert.equal(job.advance(50),false);
+  let batches = 1;
+  while (!job.advance(50)) batches++;
+  assert.ok(batches > 5);
+  assert.deepEqual(JSON.parse(JSON.stringify(job.result)),JSON.parse(JSON.stringify(core.layoutArticle(article,"earth",1000,600,w => w.length * 10))));
+});
+
+test("worker returns a bounded excerpt with license attribution and reports parse failures", () => {
+  const result = core.parseArticleMessage({id:7,body:response("<p>" + "Earth ".repeat(40000) + "</p>")});
+  assert.equal(result.id,7);
+  assert.equal(result.article.text.length,200000);
+  assert.equal(result.article.truncated,true);
+  assert.equal(result.article.license,"CC BY-SA 4.0");
+  assert.equal(result.article.licenseUrl,"https://creativecommons.org/licenses/by-sa/4.0/");
+  assert.equal(core.parseArticleMessage({id:8,body:"bad"}).article,null);
 });
 
 test("offline, missing, disambiguation, malformed and oversized responses fail plainly", () => {

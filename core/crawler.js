@@ -80,7 +80,7 @@ function createCrawler(host) {
     roam: null,
     roamWait: 0,
     locomotion: "pause",
-    phaseRemaining: 0.3,
+    phaseRemaining: 0.18,
     gaitPhase: 1,
     gaitGroup: 1,
     bob: 0,
@@ -129,7 +129,8 @@ function createCrawler(host) {
       y: c.y + Math.sin(c.a) * fw + Math.cos(c.a) * lat, z: 8 * c.size + c.bob };
   };
 
-  // Disjoint convex fans keep feet and all their segments in anatomical order.
+  // Let distal legs sweep fore/aft while keeping feet beside the body.
+  // The raised knee envelope keeps the lower joints within bone reach.
   function reachable(f, x, y) {
     var fx = Math.cos(c.a);
     var fy = Math.sin(c.a);
@@ -138,15 +139,26 @@ function createCrawler(host) {
     var fw = dx * fx + dy * fy;
     var lat = (-dx * fy + dy * fx) * f.side;
     var r = c.legReach(f);
-    var distance = clamp(Math.hypot(fw, lat), r * 0.7, r * 1.25);
-    var margin = 17 * Math.PI / 180;
+    var distance = clamp(Math.hypot(fw, lat), r * 0.35, r * 1.2);
+    var margin = 55 * Math.PI / 180;
     var minSide = Math.asin(Math.min(1, 20 * c.size / distance));
     var angle = clamp(Math.atan2(lat, fw), Math.max(LEG_ANGLES[f.i] - margin, minSide),
       Math.min(LEG_ANGLES[f.i] + margin, Math.PI - minSide));
     fw = Math.cos(angle) * distance;
     lat = Math.sin(angle) * distance * f.side;
-    return { x: c.x + fx * (fw + 6 * c.size) - fy * lat,
+    var candidate = { x: c.x + fx * (fw + 6 * c.size) - fy * lat,
       y: c.y + fy * (fw + 6 * c.size) + fx * lat };
+    var hip = c.hip(f);
+    var kneeForward = Math.sqrt(Math.max(0, Math.pow(r * 0.55, 2) - Math.pow(r * 0.38 - hip.z, 2)));
+    var direction = c.a + f.side * LEG_ANGLES[f.i];
+    var kx = hip.x + Math.cos(direction) * kneeForward;
+    var ky = hip.y + Math.sin(direction) * kneeForward;
+    var span = Math.hypot(candidate.x - kx, candidate.y - ky);
+    if (span > r * 0.68) {
+      candidate.x = kx + (candidate.x - kx) * r * 0.68 / span;
+      candidate.y = ky + (candidate.y - ky) * r * 0.68 / span;
+    }
+    return candidate;
   }
 
   function foothold(f, x, y, radius) {
@@ -221,7 +233,7 @@ function createCrawler(host) {
     c.roam = null;
     c.tap = null;
     c.locomotion = "pause";
-    c.phaseRemaining = 0.3;
+    c.phaseRemaining = 0.18;
     c.gaitPhase = 1;
     c.bob = c.lean = 0;
     c.plantAll();
@@ -359,15 +371,15 @@ function createCrawler(host) {
     var dy = ty - c.y;
     var d = Math.hypot(dx, dy);
     var commanded = !!c.tap || (c.mode === "follow" && !!c.pointer);
-    if (commanded && c.locomotion === "pause") c.phaseRemaining = Math.min(c.phaseRemaining, 0.08);
+    if (commanded && c.locomotion === "pause") c.phaseRemaining = Math.min(c.phaseRemaining, 0.05);
     c.phaseRemaining = Math.max(0, c.phaseRemaining - dt);
     if (c.phaseRemaining === 0 && c.gaitPhase >= 1) {
       c.locomotion = c.locomotion === "pause" ? "burst" : "pause";
-      c.phaseRemaining = c.locomotion === "burst" ? 0.9 + Math.random() * 1.1 : (commanded ? 0.04 + Math.random() * 0.04 : 0.25 + Math.random() * 0.4);
+      c.phaseRemaining = c.locomotion === "burst" ? 0.9 + Math.random() * 1.1 : (commanded ? 0.025 + Math.random() * 0.025 : 0.15 + Math.random() * 0.23);
     }
     var heading = d > 6 ? Math.atan2(dy, dx) : c.a;
-    var maxV = Math.min(180 + 60 * c.size, d * 2.5);
-    var duration = 0.18 + 0.04 * c.size;
+    var maxV = Math.min(180 + 60 * c.size, d * 2.5) * 2;
+    var duration = (0.18 + 0.04 * c.size) * 0.45;
     var n;
     // Start exactly one tetrapod. The other four feet remain planted.
     if (c.gaitPhase >= 1 && c.locomotion === "burst" && d > 6 && c.phaseRemaining > 0) {
@@ -387,8 +399,8 @@ function createCrawler(host) {
           continue;
         }
         var target = c.idealFoot(moving);
-        lift(moving, target.x + Math.cos(heading) * maxV * duration * 0.35,
-          target.y + Math.sin(heading) * maxV * duration * 0.35, maxV);
+        lift(moving, target.x + Math.cos(heading) * maxV * duration,
+          target.y + Math.sin(heading) * maxV * duration, maxV);
         moving.dur = duration;
       }
     }
@@ -527,32 +539,32 @@ function legJoints(c, f) {
   var dx = f.x - hip.x;
   var dy = f.y - hip.y;
   var horizontal = Math.hypot(dx, dy) || 0.001;
-  var ux = dx / horizontal;
-  var uy = dy / horizontal;
+  var ux = Math.cos(c.a + f.side * LEG_ANGLES[f.i]);
+  var uy = Math.sin(c.a + f.side * LEG_ANGLES[f.i]);
   var footZ = f.z || 0;
   var kneeZ = r * 0.38 + footZ * 0.8;
-  // Femora lean toward the front/back of their own fan instead of forming
-  // straight radial spokes. Keep the bow inside the ordered leg sectors.
-  var bend = r * 0.12 * f.side * (f.i < 2 ? -1 : 1);
-  var kneeForward;
-  var kneeX;
-  var kneeY;
-  var angle;
-  for (var attempt = 0; attempt < 6; attempt++) {
-    kneeForward = Math.sqrt(Math.max(0, upper * upper - Math.pow(kneeZ - hip.z, 2) - bend * bend));
-    kneeX = hip.x + ux * kneeForward - uy * bend;
-    kneeY = hip.y + uy * kneeForward + ux * bend;
-    var cx = kneeX - c.x - Math.cos(c.a) * 6 * c.size;
-    var cy = kneeY - c.y - Math.sin(c.a) * 6 * c.size;
-    angle = Math.atan2((-cx * Math.sin(c.a) + cy * Math.cos(c.a)) * f.side,
-      cx * Math.cos(c.a) + cy * Math.sin(c.a));
-    if (Math.abs(angle - LEG_ANGLES[f.i]) < 18 * Math.PI / 180) break;
-    bend *= 0.5;
-  }
+  // Upper legs stay directed from their separate coxae; the lower joints
+  // fold through the stride rather than bunching the roots together.
+  var kneeForward = Math.sqrt(Math.max(0, upper * upper - Math.pow(kneeZ - hip.z, 2)));
+  var kneeX = hip.x + ux * kneeForward;
+  var kneeY = hip.y + uy * kneeForward;
   var endX = f.x - kneeX;
   var endY = f.y - kneeY;
   var endZ = footZ - kneeZ;
   var d = Math.hypot(endX, endY, endZ);
+  // Folded and extended strides must remain solvable by the two lower bones.
+  if (d < Math.abs(tip - middle) || d > tip + middle) {
+    var lower = clamp(d, Math.abs(tip - middle) + r * 0.001, tip + middle - r * 0.001);
+    var hz = footZ - hip.z;
+    var span = Math.hypot(horizontal, hz);
+    var axial = (upper * upper - lower * lower + span * span) / (2 * span);
+    var arch = Math.sqrt(Math.max(0, upper * upper - axial * axial));
+    kneeX = hip.x + dx / horizontal * (horizontal / span * axial - hz / span * arch);
+    kneeY = hip.y + dy / horizontal * (horizontal / span * axial - hz / span * arch);
+    kneeZ = hip.z + hz / span * axial + horizontal / span * arch;
+    endX = f.x - kneeX; endY = f.y - kneeY; endZ = footZ - kneeZ;
+    d = Math.hypot(endX, endY, endZ);
+  }
   var along = (middle * middle - tip * tip + d * d) / (2 * d);
   var h = Math.sqrt(Math.max(0, middle * middle - along * along));
   var ex = endX / d;
@@ -658,7 +670,7 @@ function drawSpider(ctx, c, theme) {
     ctx.strokeStyle = legColor;
     ctx.fillStyle = legColor;
     // Femur and short rounded patella rise; tibia tapers to the planted toe.
-    curvedBone(ctx, hip, knee, 2.5 * s, 3 * s);
+    curvedBone(ctx, hip, knee, 2.5 * s, 0);
     curvedBone(ctx, knee, ankle, 2.1 * s, 2 * s);
     curvedBone(ctx, ankle, joints[3], 1.2 * s, 1 * s);
     // Small joint highlights, rather than the old mechanical hinge dots.

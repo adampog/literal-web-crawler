@@ -1,6 +1,7 @@
 /* eslint no-unused-vars: ["error", { "caughtErrorsIgnorePattern": "^ignored" }] */
 /* Wikipedia REST transport and inert text layout. No DOM, processes or disk cache. */
-/* exported createArticleClient, parseArticle, layoutArticle, articleFoothold, articleCanTear, repairArticle, articleTarget, drawArticle */
+/* global WorkerScript */
+/* exported createArticleLayout, parseArticleMessage, createArticleClient, parseArticle, layoutArticle, articleFoothold, articleCanTear, repairArticle, articleTarget, drawArticle */
 
 function articleText(html) {
   var parts = [];
@@ -62,7 +63,8 @@ function parseArticle(body) {
   var text = articleText(data.html);
   if (!text) throw new Error("This article has no readable text. Try another title.");
   return {title:data.title, text:text, url:"https://en.wikipedia.org/wiki/" + encodeURIComponent(data.key || data.title),
-    license:data.license && String(data.license.title || "CC BY-SA"), revision:data.latest && data.latest.id};
+    license:data.license && String(data.license.title || "CC BY-SA"),
+    licenseUrl:data.license && String(data.license.url || "https://creativecommons.org/licenses/by-sa/4.0/"), revision:data.latest && data.latest.id};
 }
 
 /** Adapters supply an asynchronous XHR and a single 12-second QML timer. */
@@ -97,7 +99,11 @@ function createArticleClient(adapters) {
                 : "Wikipedia returned " + req.status + ". Try again later.");
             return;
           }
-          try { finish(req,parseArticle(req.responseText),""); }
+          try {
+            if (adapters.parse) {
+              adapters.parse(req.responseText,function (article, message) { finish(req,article,message || ""); });
+            } else finish(req,parseArticle(req.responseText),"");
+          }
           catch (error) { finish(req,null,String(error.message || "Could not read Wikipedia's article.")); }
         };
         req.open("GET", "https://en.wikipedia.org/w/rest.php/v1/page/" + encodeURIComponent(term.replace(/ /g,"_")) + "/with_html", true);
@@ -132,7 +138,7 @@ function termTokens(term) {
 }
 
 /** Layout is bounded to 10,000 words. Pages share word objects with the engine. */
-function layoutArticle(article, term, width, height, measure) {
+function createArticleLayout(article, term, width, height, measure) {
   var pages = [[]];
   var grids = [{}];
   var tokens = termTokens(term);
@@ -144,11 +150,14 @@ function layoutArticle(article, term, width, height, measure) {
   var words = article.text.match(/\S+|\n/g) || [];
   var count = 0;
   var page = 0;
-  var truncated = false;
-  for (var i = 0; i < words.length; i++) {
+  var truncated = !!article.truncated;
+  var i = 0;
+  var job = {result:null, advance:function (limit) {
+  var stop = Math.min(words.length,i + Math.max(1,limit));
+  for (; i < stop; i++) {
     var word = words[i];
     if (word === "\n") { x = 24; y += lineHeight; continue; }
-    if (++count > 10000) { truncated = true; break; }
+    if (++count > 10000) { truncated = true; i = words.length; break; }
     var w = Math.min(right - 24,Math.max(1,measure(word)));
     if (x + w > right && x > 24) { x = 24; y += lineHeight; }
     if (y + 22 > bottom) { page++; pages.push([]); grids.push({}); x = 24; y = 110; }
@@ -164,7 +173,18 @@ function layoutArticle(article, term, width, height, measure) {
     }
     x += w + measure(" ");
   }
-  return {pages:pages,grids:grids,truncated:truncated};
+  if (i < words.length) return false;
+  job.result = {pages:pages,grids:grids,truncated:truncated};
+  return true;
+  }};
+  return job;
+}
+
+/** Synchronous convenience for tests/renderers; QML advances a job per frame. */
+function layoutArticle(article, term, width, height, measure) {
+  var job = createArticleLayout(article,term,width,height,measure);
+  while (!job.advance(10000)) { /* Offscreen callers only. */ }
+  return job.result;
 }
 
 function articleFoothold(map, page, x, y, radius) {
@@ -224,4 +244,22 @@ function drawArticle(ctx, map, page, ink, accent) {
     ctx.fillStyle = w.match ? accent : ink;
     ctx.fillText(w.text,w.x,w.y,w.w);
   }
+}
+
+
+/** Worker response is bounded so copying it back cannot carry a multi-MB page. */
+function parseArticleMessage(message) {
+  try {
+    var article = parseArticle(message.body);
+    article.truncated = article.text.length > 200000;
+    if (article.truncated) article.text = article.text.slice(0,200000);
+    return {id:message.id,article:article,message:""};
+  } catch (error) {
+    return {id:message.id,article:null,message:String(error.message || "Could not read Wikipedia's article.")};
+  }
+}
+
+// The same plain script is imported by QML and loaded in its isolated worker.
+if (typeof WorkerScript !== "undefined") {
+  WorkerScript.onMessage = function (message) { WorkerScript.sendMessage(parseArticleMessage(message)); };
 }

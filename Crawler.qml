@@ -1,4 +1,5 @@
 import QtQuick
+import QtQml.WorkerScript
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
@@ -35,6 +36,8 @@ Item {
   property var article: null
   property var articleClient: null
   property var timeoutCallback: null
+  property var parseCallback: null
+  property int parseId: 0
 
   function showSearch() {
     if (root.screensaver) return
@@ -46,6 +49,11 @@ Item {
     if (!root.articleClient) {
       root.articleClient = Article.createArticleClient({
         request: function() { return new XMLHttpRequest() },
+        parse: function(body, callback) {
+          root.parseId++
+          root.parseCallback = callback
+          articleWorker.sendMessage({id:root.parseId,body:body})
+        },
         startTimer: function(callback) { root.timeoutCallback = callback; requestTimeout.restart() },
         stopTimer: function() { requestTimeout.stop(); root.timeoutCallback = null },
         changed: function(state) {
@@ -58,6 +66,17 @@ Item {
       })
     }
     root.articleClient.search(term)
+  }
+
+  WorkerScript {
+    id: articleWorker
+    source: "core/article.js"
+    onMessage: function(messageObject) {
+      if (messageObject.id !== root.parseId || !root.parseCallback) return
+      var callback = root.parseCallback
+      root.parseCallback = null
+      callback(messageObject.article, messageObject.message)
+    }
   }
 
   Timer {
@@ -111,6 +130,8 @@ Item {
 
   function close() {
     if (root.articleClient) root.articleClient.cancel()
+    root.parseId++
+    root.parseCallback = null
     root.opened = false
     cleanup.running = true
   }

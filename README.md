@@ -67,6 +67,7 @@ and `R` to restore torn words. Esc cancels a new search when an article is
 already open; Esc from the article closes the overlay. Normal spider controls
 still work outside the search box. The screensaver stays in screenshot mode;
 any input closes it, including `/`.
+An idle screensaver trigger leaves an already-open overlay alone.
 
 Each submitted title makes one asynchronous HTTPS GET to English Wikipedia's
 MediaWiki REST API (`/w/rest.php/v1/page/{title}/with_html`), identifying
@@ -80,9 +81,11 @@ Use an exact, specific article title rather than a general search question.
 Only text and attribution from the REST response are displayed: no scripts,
 images, styles or linked resources are loaded. The plugin lays out the article
 as plain text, with paragraph breaks and pages. Responses over 4 million
-characters are rejected; display is limited to the first 10,000 words (shown
-when truncated). The source URL, revision and Wikipedia license appear above
-the article. The text layout is an adaptation of Wikipedia content under its
+characters are rejected. Parsing runs in a WorkerScript; text returned to the
+UI is capped at 200,000 characters, and layout advances 100 tokens per frame.
+Display is limited to the first 10,000 words (shown when truncated). The source
+URL, revision, license name and license URL appear above the article, with
+“adapted from Wikipedia”. The text layout is an adaptation of Wikipedia content under its
 displayed license, separate from this plugin's MIT code license.
 
 The current article and its layout live only in memory until the next search
@@ -93,6 +96,8 @@ page and paste behavior.
 
 The desktop spider starts at scale 0.70; `+` and `-` still adjust it. Its new
 leg proportions follow the widow's 1–4–2–3 order, with the front pair at 1.5×.
+At that scale, alternating steps take 94 ms and nominal burst speed is
+444 px/s. Roaming rests last 150–380 ms; click and follow rests last 25–50 ms.
 
 ### Screensaver
 

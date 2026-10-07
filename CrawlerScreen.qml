@@ -19,6 +19,8 @@ PanelWindow {
 
   property var map: null // footholds and chunks from core/screen-map.js
   property var articleMap: null
+  property var articleLayoutJob: null
+  property bool articlePending: false
   property int articlePage: 0
   property var spider: null // the engine from core/crawler.js
   property var holeItems: []
@@ -79,6 +81,7 @@ PanelWindow {
   // drop the spider in the middle of the screen.
   function analyse() {
     var ctx = probe.getContext("2d")
+    if (!ctx) return
     ctx.drawImage(win.shotUrl, 0, 0, probe.width, probe.height)
     var data = ctx.getImageData(0, 0, probe.width, probe.height)
     win.map = ScreenMap.buildScreenMap(data.data, probe.width, probe.height, win.width / probe.width)
@@ -107,11 +110,14 @@ PanelWindow {
     if (!win.host.searchMode || !win.host.article || win.width < 200 || win.height < 180) return
     win.repair()
     var ctx = articleCanvas.getContext("2d")
+    if (!ctx) { win.articlePending = true; return }
+    win.articlePending = false
     ctx.font = "18px monospace"
-    win.articleMap = Article.layoutArticle(win.host.article, win.host.searchTerm, win.width, win.height,
+    win.articleLayoutJob = Article.createArticleLayout(win.host.article, win.host.searchTerm, win.width, win.height,
       function(word) { return ctx.measureText(word).width })
     win.articlePage = 0
-    win.startArticlePage()
+    win.spider = null
+    legs.requestPaint()
   }
 
   function startArticlePage() {
@@ -158,6 +164,8 @@ PanelWindow {
         win.repairPieces()
         win.spider = null
         win.articleMap = null
+        win.articleLayoutJob = null
+        win.articlePending = false
         legs.requestPaint()
         articleCanvas.requestPaint()
       }
@@ -209,6 +217,7 @@ PanelWindow {
     Component.onCompleted: start()
     onWidthChanged: start()
     onImageLoaded: requestPaint()
+    onAvailableChanged: if (available) { start(); requestPaint() }
     onPaint: if (!win.host.searchMode && isImageLoaded(win.shotUrl) && !win.map) win.analyse()
   }
 
@@ -226,8 +235,10 @@ PanelWindow {
     id: articleCanvas
     anchors.fill: parent
     visible: win.host.searchMode
+    onAvailableChanged: if (available) { if (win.articlePending) win.prepareArticle(); requestPaint() }
     onPaint: {
       var ctx = getContext("2d")
+      if (!ctx) return
       ctx.reset()
       if (win.articleMap) Article.drawArticle(ctx, win.articleMap, win.articlePage, String(Color.foreground), Core.CRAWLER_PALETTE[0])
     }
@@ -242,6 +253,7 @@ PanelWindow {
     renderTarget: Canvas.FramebufferObject
     onPaint: {
       var ctx = getContext("2d")
+      if (!ctx) return
       ctx.reset()
       if (win.spider) Core.drawSpider(ctx, win.spider, win.theme)
     }
@@ -302,8 +314,16 @@ PanelWindow {
   }
 
   FrameAnimation {
-    running: win.spider !== null
-    onTriggered: win.tick(frameTime)
+    running: win.spider !== null || win.articleLayoutJob !== null || win.articlePending
+    onTriggered: {
+      if (win.articlePending) win.prepareArticle()
+      if (win.articleLayoutJob && win.articleLayoutJob.advance(100)) {
+        win.articleMap = win.articleLayoutJob.result
+        win.articleLayoutJob = null
+        win.startArticlePage()
+      }
+      if (win.spider) win.tick(frameTime)
+    }
   }
 
   MouseArea {
@@ -444,7 +464,7 @@ PanelWindow {
       anchors.right: parent.right
       anchors.bottom: parent.bottom
       anchors.margins: 24
-      text: win.host.article ? win.host.article.url + "  ·  " + win.host.article.license + "  ·  revision " + win.host.article.revision : "Search by article title. No screenshot is taken in search mode."
+      text: win.host.article ? win.host.article.url + "  ·  " + win.host.article.license + "  " + win.host.article.licenseUrl + "  ·  adapted from Wikipedia  ·  revision " + win.host.article.revision : "Search by article title. No screenshot is taken in search mode."
       textFormat: Text.PlainText
       font.pixelSize: 12
       color: Color.foreground
@@ -457,7 +477,7 @@ PanelWindow {
     anchors.right: parent.right
     anchors.bottom: parent.bottom
     anchors.margins: 24
-    text: win.articleMap ? "Page " + (win.articlePage + 1) + "/" + win.articleMap.pages.length + "  ·  PgUp / PgDown or scroll  ·  / search" + (win.articleMap.truncated ? "  ·  first 10,000 words" : "") : ""
+    text: win.articleMap ? "Page " + (win.articlePage + 1) + "/" + win.articleMap.pages.length + "  ·  PgUp / PgDown or scroll  ·  / search" + (win.articleMap.truncated ? "  ·  article excerpt" : "") : ""
     textFormat: Text.PlainText
     color: Color.foreground
     font.pixelSize: 13
@@ -487,6 +507,7 @@ PanelWindow {
       radius: 4
       TextInput {
         id: searchInput
+        focus: win.focused && win.host.searchPrompt
         anchors.fill: parent
         anchors.margins: 10
         color: Color.foreground

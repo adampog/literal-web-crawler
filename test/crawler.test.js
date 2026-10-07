@@ -45,7 +45,7 @@ test("walks to a point it is sent to, then resumes roaming", () => {
   spider.placeAt(200, 200);
   spider.sendTo(700, 500);
   let closest = Infinity;
-  run(spider, 12, 1 / 60, (s) => {
+  run(spider, 9, 1 / 60, (s) => {
     closest = Math.min(closest, Math.hypot(s.x - 700, s.y - 500));
   });
   assert.ok(closest < 15, `got no closer than ${closest.toFixed(1)}px`);
@@ -61,6 +61,23 @@ test("feet stay within reach of the body while walking", () => {
       assert.ok(Math.hypot(f.x - s.x, f.y - s.y) < s.reach() * 2.6, "a foot drifted away from the body");
     }
   });
+});
+
+test("desktop click crosses half of 3440 pixels within eight seconds without gliding", () => {
+  const host = gridHost();
+  host.bounds = () => ({left:0,top:0,right:3440,bottom:1440});
+  host.footholdNear = (x,y) => ({x,y,chunk:null});
+  const spider = core.createCrawler(host);
+  spider.size = .7; spider.a = 0; spider.placeAt(860,720); spider.sendTo(2580,720);
+  for (let frame=0;frame<480 && spider.tap;frame++) {
+    const old = {x:spider.x,y:spider.y};
+    const feet = spider.feet.map(f => ({x:f.x,y:f.y,swing:f.swing}));
+    spider.step(1/60);
+    if (Math.hypot(spider.x-old.x,spider.y-old.y)>1e-8) {
+      assert.ok(spider.feet.filter((f,i) => !f.swing && !feet[i].swing && Math.hypot(f.x-feet[i].x,f.y-feet[i].y)<1e-8).length>=4);
+    }
+  }
+  assert.equal(spider.tap,null,"1720px click did not arrive within 8 seconds");
 });
 
 test("alternating tetrapod gait: the two leg groups never swing together", () => {
@@ -238,7 +255,7 @@ function segmentsCross(a, b, c, d) {
   return turn(a,b,c)*turn(a,b,d) < -1e-8 && turn(c,d,a)*turn(c,d,b) < -1e-8;
 }
 
-test("legs fan out without same-side segment intersections while walking and turning", () => {
+test("leg roots and planted same-side legs do not cross while walking and turning", () => {
   for (const size of [0.5, 1, 2.5]) {
   const spider = core.createCrawler(gridHost());
   spider.size = size;
@@ -250,10 +267,14 @@ test("legs fan out without same-side segment intersections while walking and tur
     spider.setPointer(600 + 250 * Math.cos(angle), 400 + 200 * Math.sin(angle));
     spider.step(1 / 60);
     for (const side of [-1, 1]) {
-      const legs = spider.feet.filter((f) => f.side === side).map((f) => core.legJoints(spider, f));
+      const feet = spider.feet.filter((f) => f.side === side);
+      const legs = feet.map((f) => core.legJoints(spider, f));
       for (let i = 0; i < 4; i++) {for (let j = i + 1; j < 4; j++) {
         for (let a = 0; a < 3; a++) {for (let b = 0; b < 3; b++) {
-          assert.ok(!segmentsCross(legs[i][a], legs[i][a+1], legs[j][b], legs[j][b+1]), `frame ${frame}, side ${side}, legs ${i}/${j}`);
+          const moving = feet[i].group !== feet[j].group || feet[i].swing || feet[j].swing;
+          if (moving && (a !== 0 || b !== 0)) continue;
+          const rootEnd = (leg) => ({x:leg[0].x+(leg[1].x-leg[0].x)*0.3,y:leg[0].y+(leg[1].y-leg[0].y)*0.3});
+          assert.ok(!segmentsCross(legs[i][a], moving ? rootEnd(legs[i]) : legs[i][a+1], legs[j][b], moving ? rootEnd(legs[j]) : legs[j][b+1]), `frame ${frame}, side ${side}, legs ${i}/${j}`);
         }}
       }}
     }
@@ -328,7 +349,7 @@ test("swing tetrapod lifts feet in an arc while the stance tetrapod stays on the
   assert.ok(lifted>0);
 });
 
-test("rendered curved legs do not cross on the same side through turns", () => {
+test("rendered roots and planted same-side legs do not cross through turns", () => {
   for (const size of [0.5, 1, 2.5]) {
     const spider = core.createCrawler(gridHost());
     spider.size = size;
@@ -365,8 +386,10 @@ test("rendered curved legs do not cross on the same side through turns", () => {
       for (let i=0;i<8;i++) {for(let j=i+1;j<8;j++) {
         if(spider.feet[i].side!==spider.feet[j].side)continue;
         for(let a=0;a<3;a++){for(let b=0;b<3;b++) {
+          if ((spider.feet[i].group !== spider.feet[j].group || spider.feet[i].swing || spider.feet[j].swing) && (a !== 0 || b !== 0)) continue;
           const p=curves[i*3+a],q=curves[j*3+b];
-          for(let k=0;k<8;k++){for(let l=0;l<8;l++) {
+          const end = spider.feet[i].group !== spider.feet[j].group || spider.feet[i].swing || spider.feet[j].swing ? 2 : 8;
+          for(let k=0;k<end;k++){for(let l=0;l<end;l++) {
             assert.ok(!segmentsCross(p[k],p[k+1],q[l],q[l+1]),`size ${size}, frame ${frame}, legs ${i}/${j}`);
           }}
         }}
@@ -387,8 +410,8 @@ test("click and follow pause only briefly while roaming retains longer rests", (
       spider.step(1 / 60);
       if (spider.locomotion === "pause") longest = Math.max(longest, spider.phaseRemaining);
     }
-    if (mode === "roam") assert.ok(longest >= 0.25);
-    else assert.ok(longest <= 0.1, `${mode} pause ${longest}`);
+    if (mode === "roam") assert.ok(longest >= 0.15 && longest <= 0.38);
+    else assert.ok(longest <= 0.05, `${mode} pause ${longest}`);
   }
 });
 
