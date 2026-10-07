@@ -4,6 +4,7 @@ import Quickshell.Wayland
 import qs.Commons
 import "core/crawler.js" as Core
 import "core/screen-map.js" as ScreenMap
+import "core/article.js" as Article
 
 // One monitor's worth of crawling: the frozen screenshot, the holes torn in
 // it, the pieces flying off, and the spider drawn on a canvas on top.
@@ -17,6 +18,8 @@ PanelWindow {
   readonly property string shotUrl: "file://" + shotPath
 
   property var map: null // footholds and chunks from core/screen-map.js
+  property var articleMap: null
+  property int articlePage: 0
   property var spider: null // the engine from core/crawler.js
   property var holeItems: []
   property int seenRepair: host.repairGeneration
@@ -44,21 +47,27 @@ PanelWindow {
   function makeHost() {
     return {
       footholdNear: function(x, y, r) {
+        if (win.host.searchMode) return win.articleMap ? Article.articleFoothold(win.articleMap, win.articlePage, x, y, r) : null
         return win.map ? ScreenMap.screenFoothold(win.map, x, y, r) : null
       },
+      roamTarget: function(x, y, reach) {
+        return win.host.searchMode && win.articleMap ? Article.articleTarget(win.articleMap, win.articlePage, x, y, reach) : null
+      },
       tearOff: function(chunk) {
+        if (win.host.searchMode && !Article.articleCanTear(win.articleMap, win.articlePage, chunk)) return null
         chunk.gone = true
         var glow = Core.CRAWLER_PALETTE[win.spider.torn % Core.CRAWLER_PALETTE.length]
-        win.holeItems.push(holeComponent.createObject(holes, {
+        if (!win.host.searchMode) win.holeItems.push(holeComponent.createObject(holes, {
           x: chunk.x, y: chunk.y, width: chunk.w, height: chunk.h, glow: glow
         }))
         var visual = pieceComponent.createObject(pieces, {
-          x: chunk.x, y: chunk.y, source: Qt.rect(chunk.x, chunk.y, chunk.w, chunk.h), glow: glow
+          x: chunk.x, y: chunk.y, source: Qt.rect(chunk.x, chunk.y, chunk.w, chunk.h), glow: glow, word: win.host.searchMode ? chunk.text : ""
         })
+        if (win.host.searchMode) articleCanvas.requestPaint()
         return { x: chunk.x, y: chunk.y, w: chunk.w, h: chunk.h, visual: visual }
       },
       bounds: function() {
-        return { left: 0, top: 0, right: win.width, bottom: win.height }
+        return { left: 0, top: win.host.searchMode ? 100 : 0, right: win.width, bottom: win.host.searchMode ? win.height - 56 : win.height }
       },
       removePiece: function(p) {
         if (p.visual) p.visual.destroy()
@@ -74,6 +83,7 @@ PanelWindow {
     var data = ctx.getImageData(0, 0, probe.width, probe.height)
     win.map = ScreenMap.buildScreenMap(data.data, probe.width, probe.height, win.width / probe.width)
     win.spider = Core.createCrawler(win.makeHost())
+    win.spider.size = host.size
     win.spider.placeAt(win.width * 0.5, win.height * 0.5)
   }
 
@@ -87,7 +97,79 @@ PanelWindow {
     }
     win.spider.clearPieces()
     if (win.map) win.map.chunks = []
+    if (win.articleMap) {
+      Article.repairArticle(win.articleMap)
+      articleCanvas.requestPaint()
+    }
   }
+
+  function prepareArticle() {
+    if (!win.host.searchMode || !win.host.article || win.width < 200 || win.height < 180) return
+    win.repair()
+    var ctx = articleCanvas.getContext("2d")
+    ctx.font = "18px monospace"
+    win.articleMap = Article.layoutArticle(win.host.article, win.host.searchTerm, win.width, win.height,
+      function(word) { return ctx.measureText(word).width })
+    win.articlePage = 0
+    win.startArticlePage()
+  }
+
+  function startArticlePage() {
+    win.repairPieces()
+    win.spider = Core.createCrawler(win.makeHost())
+    win.spider.size = win.host.size
+    var target = Article.articleTarget(win.articleMap, win.articlePage, win.width / 2, win.height / 2)
+    win.spider.placeAt(target ? target.x : win.width / 2, target ? target.y : win.height / 2)
+    articleCanvas.requestPaint()
+  }
+
+  function repairPieces() {
+    for (var i = 0; i < win.holeItems.length; i++) win.holeItems[i].destroy()
+    win.holeItems = []
+    if (win.spider) {
+      for (var k = 0; k < win.spider.pieces.length; k++) {
+        if (win.spider.pieces[k].visual) win.spider.pieces[k].visual.destroy()
+      }
+      win.spider.clearPieces()
+    }
+  }
+
+  function changePage(delta) {
+    if (!win.articleMap || win.host.searchPrompt) return
+    var next = Math.max(0, Math.min(win.articleMap.pages.length - 1, win.articlePage + delta))
+    if (next === win.articlePage) return
+    win.articlePage = next
+    win.startArticlePage()
+  }
+
+  Connections {
+    target: win.host
+    function onSearchModeChanged() {
+      if (!win.host.searchMode) return
+      win.repairPieces()
+      win.spider = null
+      legs.requestPaint()
+      win.map = null
+      if (win.host.article) win.prepareArticle()
+    }
+    function onArticleChanged() {
+      if (win.host.article) win.prepareArticle()
+      else if (win.host.searchMode) {
+        win.repairPieces()
+        win.spider = null
+        win.articleMap = null
+        legs.requestPaint()
+        articleCanvas.requestPaint()
+      }
+    }
+    function onSearchPromptChanged() { if (win.host.searchPrompt && win.focused) searchInput.forceActiveFocus() }
+  }
+  Component.onCompleted: {
+    if (win.host.searchMode && win.host.article) win.prepareArticle()
+    if (win.host.searchPrompt && win.focused) searchInput.forceActiveFocus()
+  }
+  onWidthChanged: if (win.host.searchMode && win.host.article) win.prepareArticle()
+  onHeightChanged: if (win.host.searchMode && win.host.article) win.prepareArticle()
 
   // Copy settings from the shared root and move the visuals to match the engine.
   function tick(dt) {
@@ -96,10 +178,11 @@ PanelWindow {
       win.repair()
     }
     var s = win.spider
+    if (!s) return
     s.size = host.size
     s.ripRate = host.ripRate
     s.mode = host.follow ? "follow" : "roam"
-    if (!host.paused) s.step(Math.min(1 / 30, dt))
+    if (!win.host.paused && !win.host.searchPrompt) s.step(Math.min(1 / 30, dt))
     for (var i = 0; i < s.pieces.length; i++) {
       var p = s.pieces[i]
       p.visual.x = p.x
@@ -119,23 +202,35 @@ PanelWindow {
     property bool requested: false
 
     function start() {
-      if (requested || win.width < 2 || win.height < 2) return
+      if (win.host.searchMode || requested || win.width < 2 || win.height < 2) return
       requested = true
       loadImage(win.shotUrl)
     }
     Component.onCompleted: start()
     onWidthChanged: start()
     onImageLoaded: requestPaint()
-    onPaint: if (isImageLoaded(win.shotUrl) && !win.map) win.analyse()
+    onPaint: if (!win.host.searchMode && isImageLoaded(win.shotUrl) && !win.map) win.analyse()
   }
 
   Image {
     id: shot
     anchors.fill: parent
-    source: win.shotUrl
+    visible: !win.host.searchMode
+    source: win.host.searchMode ? "" : win.shotUrl
     fillMode: Image.Stretch
     cache: false
     smooth: true
+  }
+
+  Canvas {
+    id: articleCanvas
+    anchors.fill: parent
+    visible: win.host.searchMode
+    onPaint: {
+      var ctx = getContext("2d")
+      ctx.reset()
+      if (win.articleMap) Article.drawArticle(ctx, win.articleMap, win.articlePage, String(Color.foreground), Core.CRAWLER_PALETTE[0])
+    }
   }
 
   Item { id: holes; anchors.fill: parent }
@@ -171,6 +266,7 @@ PanelWindow {
       id: piece
       property rect source
       property color glow: "white"
+      property string word: ""
       width: source.width
       height: source.height
 
@@ -184,9 +280,18 @@ PanelWindow {
       }
       ShaderEffectSource {
         anchors.fill: parent
+        visible: piece.word === ""
         sourceItem: shot
         sourceRect: piece.source
         live: false
+      }
+      Text {
+        visible: piece.word !== ""
+        text: piece.word
+        textFormat: Text.PlainText
+        color: Color.foreground
+        font.family: "monospace"
+        font.pixelSize: 18
       }
       Rectangle {
         anchors.fill: parent
@@ -216,16 +321,20 @@ PanelWindow {
       }
       if (win.spider) win.spider.setPointer(mouse.x, mouse.y)
     }
+    onWheel: function(wheel) {
+      if (win.host.screensaver) win.host.dismiss()
+      else if (win.host.searchMode && !win.host.searchPrompt) win.changePage(wheel.angleDelta.y < 0 ? 1 : -1)
+    }
     onPressed: function(mouse) {
       if (host.screensaver) host.dismiss()
-      else if (win.spider) win.spider.sendTo(mouse.x, mouse.y)
+      else if (win.spider && !win.host.searchPrompt) win.spider.sendTo(mouse.x, mouse.y)
     }
   }
 
   // Keyboard controls (the focused monitor only).
   Item {
     anchors.fill: parent
-    focus: win.focused
+    focus: win.focused && !win.host.searchPrompt
 
     Keys.onPressed: function(event) {
       event.accepted = true
@@ -234,6 +343,17 @@ PanelWindow {
         return
       }
       switch (event.key) {
+      case Qt.Key_Slash:
+        win.host.showSearch()
+        break
+      case Qt.Key_PageDown:
+        if (win.host.searchMode) win.changePage(1)
+        else event.accepted = false
+        break
+      case Qt.Key_PageUp:
+        if (win.host.searchMode) win.changePage(-1)
+        else event.accepted = false
+        break
       case Qt.Key_Escape:
       case Qt.Key_Q:
         host.dismiss()
@@ -296,8 +416,102 @@ PanelWindow {
           + key("R", c[2]) + " repair   " + key("F", c[3]) + (host.follow ? " roam   " : " follow mouse   ")
           + key("+/-", c[0]) + " size " + host.size.toFixed(1) + "   "
           + key("[ ]", c[1]) + " rip " + Math.round(host.ripRate * 100) + "%   "
-          + key("H", c[2]) + " hide"
+          + key("H", c[2]) + " hide   " + key("/", c[0]) + " Wikipedia"
       }
     }
   }
+
+  Rectangle {
+    visible: win.host.searchMode
+    anchors.left: parent.left
+    anchors.right: parent.right
+    anchors.top: parent.top
+    height: 96
+    color: Color.background
+    Text {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: parent.top
+      anchors.margins: 24
+      text: win.host.article ? win.host.article.title : "Wikipedia"
+      textFormat: Text.PlainText
+      font.pixelSize: 28
+      color: Color.foreground
+      elide: Text.ElideRight
+    }
+    Text {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.bottom: parent.bottom
+      anchors.margins: 24
+      text: win.host.article ? win.host.article.url + "  ·  " + win.host.article.license + "  ·  revision " + win.host.article.revision : "Search by article title. No screenshot is taken in search mode."
+      textFormat: Text.PlainText
+      font.pixelSize: 12
+      color: Color.foreground
+      elide: Text.ElideRight
+    }
+  }
+
+  Text {
+    visible: win.host.searchMode && win.articleMap !== null
+    anchors.right: parent.right
+    anchors.bottom: parent.bottom
+    anchors.margins: 24
+    text: win.articleMap ? "Page " + (win.articlePage + 1) + "/" + win.articleMap.pages.length + "  ·  PgUp / PgDown or scroll  ·  / search" + (win.articleMap.truncated ? "  ·  first 10,000 words" : "") : ""
+    textFormat: Text.PlainText
+    color: Color.foreground
+    font.pixelSize: 13
+  }
+
+  Rectangle {
+    visible: win.host.searchPrompt && win.focused
+    anchors.centerIn: parent
+    width: Math.min(600, win.width - 48)
+    height: 168
+    radius: 12
+    color: Color.background
+    border.color: Core.CRAWLER_PALETTE[0]
+    border.width: 2
+    Text {
+      x: 20; y: 16
+      text: "Wikipedia article"
+      color: Color.foreground
+      font.pixelSize: 20
+    }
+    Rectangle {
+      x: 20; y: 52
+      width: parent.width - 40
+      height: 42
+      color: "transparent"
+      border.color: Color.foreground
+      radius: 4
+      TextInput {
+        id: searchInput
+        anchors.fill: parent
+        anchors.margins: 10
+        color: Color.foreground
+        selectionColor: Core.CRAWLER_PALETTE[1]
+        font.pixelSize: 18
+        maximumLength: 160
+        clip: true
+        readOnly: win.host.searchBusy
+        activeFocusOnPress: true
+        onAccepted: if (!win.host.searchBusy) win.host.submitSearch(text)
+        Keys.onEscapePressed: function(event) {
+          if (win.host.article) { win.host.searchPrompt = false; event.accepted = true }
+          else win.host.dismiss()
+        }
+      }
+    }
+    Text {
+      x: 20; y: 106
+      width: parent.width - 40
+      text: win.host.searchMessage || "Enter another title and press Enter."
+      textFormat: Text.PlainText
+      wrapMode: Text.Wrap
+      color: Color.foreground
+      font.pixelSize: 14
+    }
+  }
+
 }

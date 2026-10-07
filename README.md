@@ -48,7 +48,51 @@ o.bind("SUPER + ALT + W", "Literal web crawler", "omarchy-shell shell toggle io.
 | `+` / `-` | Bigger or smaller spider |
 | `[` / `]` | Rip less or more |
 | `H` | Hide the key hints |
+| `/` | Open Wikipedia search (interactive mode) |
 | `Esc` or `Q` | Close |
+
+### Wikipedia search
+
+Press `/`, type a Wikipedia article title and press Enter. Or use a second
+keybind to open directly into search, without taking a screenshot:
+
+```lua
+o.bind("SUPER + ALT + SHIFT + W", "Wikipedia web crawler", "omarchy-shell shell toggle io.github.adampog.literal-web-crawler '{\"mode\":\"search\"}'")
+```
+
+The article replaces the screenshot. Matching search words are highlighted;
+the spider seeks them and tears them before other words on the page. Use
+PgUp/PgDown or the mouse wheel to read the next page, `/` to search again,
+and `R` to restore torn words. Esc cancels a new search when an article is
+already open; Esc from the article closes the overlay. Normal spider controls
+still work outside the search box. The screensaver stays in screenshot mode;
+any input closes it, including `/`.
+
+Each submitted title makes one asynchronous HTTPS GET to English Wikipedia's
+MediaWiki REST API (`/w/rest.php/v1/page/{title}/with_html`), identifying
+`LiteralWebCrawler/1.0` and this repository in the User-Agent. Wikipedia sees
+the title and the usual network information, including your IP address.
+There are no background requests, parallel searches, or automatic retries.
+A request is canceled after 12 seconds or when the overlay closes. Missing,
+ambiguous, offline and other failed requests show a message in the search box.
+Use an exact, specific article title rather than a general search question.
+
+Only text and attribution from the REST response are displayed: no scripts,
+images, styles or linked resources are loaded. The plugin lays out the article
+as plain text, with paragraph breaks and pages. Responses over 4 million
+characters are rejected; display is limited to the first 10,000 words (shown
+when truncated). The source URL, revision and Wikipedia license appear above
+the article. The text layout is an adaptation of Wikipedia content under its
+displayed license, separate from this plugin's MIT code license.
+
+The current article and its layout live only in memory until the next search
+or closing the overlay. There is no article disk cache or search history file.
+The existing temporary screenshots are still used only in screenshot mode.
+Search is available in the Omarchy plugin; the browser build keeps its existing
+page and paste behavior.
+
+The desktop spider starts at scale 0.70; `+` and `-` still adjust it. Its new
+leg proportions follow the widow's 1–4–2–3 order, with the front pair at 1.5×.
 
 ### Screensaver
 

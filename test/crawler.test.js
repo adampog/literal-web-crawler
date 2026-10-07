@@ -126,7 +126,7 @@ test("drawSpider only uses canvas calls QML's Context2D also has", () => {
   const spider = core.createCrawler(gridHost());
   spider.placeAt(300, 300);
   const allowed = new Set([
-    "beginPath", "moveTo", "lineTo", "arc", "stroke", "fill", "save", "restore", "translate", "rotate", "scale", "quadraticCurveTo", "clip"
+    "beginPath", "moveTo", "lineTo", "arc", "stroke", "fill", "save", "restore", "translate", "rotate", "scale", "quadraticCurveTo", "clip", "closePath"
   ]);
   const used = new Set();
   const ctx = new Proxy({}, {
@@ -143,12 +143,11 @@ test("drawSpider only uses canvas calls QML's Context2D also has", () => {
   assert.ok(used.has("arc") && used.has("quadraticCurveTo"));
 });
 
-test("front pair has one-and-a-half times the reach of every other leg", () => {
+test("widow leg lengths follow 1-4-2-3 with the front pair at 1.5x", () => {
   const spider = core.createCrawler(gridHost());
-  spider.placeAt(300, 300);
-  for (const f of spider.feet) {
-    assert.equal(spider.legReach(f), spider.reach() * (f.i === 0 ? 1.5 : 1));
-  }
+  const reach = [0,1,2,3].map(i => spider.legReach({i}));
+  assert.equal(reach[0], spider.reach() * 1.5);
+  assert.ok(reach[0] > reach[3] && reach[3] > reach[1] && reach[1] > reach[2]);
 });
 
 test("unequal legs stay reachable and outside the body through turns and size changes", () => {
@@ -199,13 +198,13 @@ test("body stays translucent and hourglass stays red in light and dark themes", 
     });
     core.drawSpider(ctx, spider, { ink: "#888888", fill, accent: "#00ff00", legs: core.CRAWLER_PALETTE });
     const body = paints.filter((p) => p.color === fill);
-    assert.equal(body.length, 2);
+    assert.equal(body.length, 1, "head and abdomen share one outline");
     assert.ok(body.every((p) => p.alpha > 0 && p.alpha < 1), "opaque body hides the page");
     const hourglass = paints.find((p) => p.color === "#ff304b");
     assert.ok(hourglass, "theme replaced red mark");
     assert.equal(hourglass.path.length, 7, "hourglass must have two lobes joined at a waist");
     assert.deepEqual(hourglass.path[2], hourglass.path[5], "lobes meet at the waist");
-    assert.equal(hourglass.alpha, 1);
+    assert.equal(hourglass.alpha, body[0].alpha, "red fill is as translucent as the body");
   }
 });
 
@@ -391,4 +390,22 @@ test("click and follow pause only briefly while roaming retains longer rests", (
     if (mode === "roam") assert.ok(longest >= 0.25);
     else assert.ok(longest <= 0.1, `${mode} pause ${longest}`);
   }
+});
+
+
+test("desktop default footprint is smaller than the original at true screen scale", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const qml = fs.readFileSync(path.join(__dirname,"../Crawler.qml"),"utf8");
+  const defaultSize = Number(/property real size: ([0-9.]+)/.exec(qml)[1]);
+  const host = gridHost();
+  host.footholdNear = (x,y) => ({x,y,chunk:null});
+  const spider = core.createCrawler(host);
+  spider.size = defaultSize; spider.a = 0; spider.placeAt(1720,720);
+  const xs = spider.feet.map(f => f.x); const ys = spider.feet.map(f => f.y);
+  const width = Math.max(...xs)-Math.min(...xs); const height = Math.max(...ys)-Math.min(...ys);
+  // bb4fa73 at size1, neutral pose: 107.26 x 124 logical pixels.
+  assert.ok(width < 107.26 && height < 124, `${width} x ${height}`);
+  assert.ok(Math.abs(width-101.48085681546) < 1e-6);
+  assert.ok(Math.abs(height-85.64358545843) < 1e-6);
 });

@@ -32,6 +32,7 @@ var CRAWLER_PALETTE = ["#55dcf2", "#e45cc0", "#9a82ff", "#ffb547"];
  * Where each leg wants its foot, relative to the body, in units of reach.
  * `f` is how far forward, `l` how far out to the side. Index 0 is the front leg.
  */
+var LEG_REACH_SCALE = [1.5, 1.05, 1, 1.2];
 var LEG_ANGLES = [30, 70, 110, 150].map(function (degrees) { return degrees * Math.PI / 180; });
 
 /** Seconds a torn piece drifts at full opacity, then how long it takes to fade. */
@@ -116,7 +117,7 @@ function createCrawler(host) {
 
   /** Front legs are longer; stance, stepping and drawing use the same reach. */
   c.legReach = function (f) {
-    return c.reach() * (f.i === 0 ? 1.5 : 1);
+    return c.reach() * LEG_REACH_SCALE[f.i];
   };
 
   /** Coxae spread along the cephalothorax rim, with the front pair forward. */
@@ -248,6 +249,14 @@ function createCrawler(host) {
   /** Choose a new wander target inside the host's bounds, not too near or far. */
   function pickRoam() {
     var b = host.bounds();
+    if (typeof host.roamTarget === "function") {
+      var preferred = host.roamTarget(c.x, c.y, c.reach());
+      if (preferred && !outOfBounds(preferred)) {
+        c.roam = preferred;
+        c.roamWait = 0.2 + Math.random() * 1.4;
+        return;
+      }
+    }
     var m = 60;
     var x = c.x;
     var y = c.y;
@@ -682,17 +691,15 @@ function drawSpider(ctx, c, theme) {
   ctx.strokeStyle = theme.ink;
   ctx.fillStyle = theme.fill;
   ctx.lineWidth = 1.7 * s;
+  bodyPath(ctx, s);
   ctx.globalAlpha = 0.25;
-  oval(ctx, -20 * s, 0, 19 * s, 17 * s);
-  oval(ctx, 6 * s, 0, 13 * s, 11 * s);
+  ctx.fill();
   ctx.globalAlpha = 1;
-  // Re-outline at full strength; the page stays visible through the body.
-  ctx.fillStyle = "transparent";
-  oval(ctx, -20 * s, 0, 19 * s, 17 * s);
-  oval(ctx, 6 * s, 0, 13 * s, 11 * s);
+  ctx.stroke();
   ctx.shadowColor = "#ff304b";
-  ctx.shadowBlur = 10 * s;
+  ctx.shadowBlur = 6 * s;
   ctx.fillStyle = "#ff304b";
+  ctx.strokeStyle = "#ff304b";
   ctx.beginPath();
   ctx.moveTo(-29 * s, -7 * s);
   ctx.lineTo(-11 * s, -7 * s);
@@ -701,7 +708,10 @@ function drawSpider(ctx, c, theme) {
   ctx.lineTo(-29 * s, 7 * s);
   ctx.lineTo(-20 * s, 0);
   ctx.lineTo(-29 * s, -7 * s);
+  ctx.globalAlpha = 0.25;
   ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.stroke();
   ctx.shadowColor = theme.accent;
   ctx.fillStyle = theme.eyes || theme.accent;
   for (var e = -1; e <= 1; e += 2) {
@@ -713,14 +723,21 @@ function drawSpider(ctx, c, theme) {
   ctx.restore();
 }
 
-/** Fill and stroke an axis-aligned oval centred on (cx, cy) with radii rx, ry. */
-function oval(ctx, cx, cy, rx, ry) {
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.scale(1, ry / rx);
+/** Joined silhouette: only the exterior arcs of the two overlapping ellipses. */
+function bodyPath(ctx, s) {
+  // Their intersection is x=-3.13383254, giving these ellipse angles.
+  var abdomenAngle = 0.47848603358321723;
+  var headAngle = 2.3498445969823814;
   ctx.beginPath();
-  ctx.arc(0, 0, rx, 0, Math.PI * 2);
+  ctx.save();
+  ctx.translate(-20 * s, 0);
+  ctx.scale(1, 17 / 19);
+  ctx.arc(0, 0, 19 * s, abdomenAngle, Math.PI * 2 - abdomenAngle);
   ctx.restore();
-  ctx.fill();
-  ctx.stroke();
+  ctx.save();
+  ctx.translate(6 * s, 0);
+  ctx.scale(1, 11 / 13);
+  ctx.arc(0, 0, 13 * s, -headAngle, headAngle);
+  ctx.restore();
+  ctx.closePath();
 }

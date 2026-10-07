@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
+import "core/article.js" as Article
 
 // Overlay entry point for the Literal Web Crawler plugin.
 //
@@ -26,6 +27,47 @@ Item {
   // The host reads `opened`; the screens are only created while it is true.
   property bool opened: false
   property bool screensaver: false
+  property bool searchMode: false
+  property bool searchPrompt: false
+  property bool searchBusy: false
+  property string searchMessage: "Enter a Wikipedia article title."
+  property string searchTerm: ""
+  property var article: null
+  property var articleClient: null
+  property var timeoutCallback: null
+
+  function showSearch() {
+    if (root.screensaver) return
+    root.searchMode = true
+    root.searchPrompt = true
+  }
+
+  function submitSearch(term) {
+    if (!root.articleClient) {
+      root.articleClient = Article.createArticleClient({
+        request: function() { return new XMLHttpRequest() },
+        startTimer: function(callback) { root.timeoutCallback = callback; requestTimeout.restart() },
+        stopTimer: function() { requestTimeout.stop(); root.timeoutCallback = null },
+        changed: function(state) {
+          root.searchBusy = state.busy
+          root.searchMessage = state.message
+          root.searchTerm = state.term
+          root.article = state.article
+          if (state.article) root.searchPrompt = false
+        }
+      })
+    }
+    root.articleClient.search(term)
+  }
+
+  Timer {
+    id: requestTimeout
+    interval: 12000
+    onTriggered: {
+      var callback = root.timeoutCallback
+      if (callback) callback()
+    }
+  }
 
   // Screenshots go to a per-user tmpfs folder; each open gets a fresh stamp so
   // QML never shows a cached picture from the last run.
@@ -33,7 +75,7 @@ Item {
   property string captureStamp: ""
 
   // Settings shared by every screen. The keyboard controls change these.
-  property real size: 1
+  property real size: 0.7
   property real ripRate: 0.35
   property bool paused: false
   property bool follow: false
@@ -45,8 +87,18 @@ Item {
   function open(payloadJson) {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
-    root.screensaver = payload.mode === "screensaver"
+    if (!payload || typeof payload !== "object") payload = ({})
     if (root.opened || capture.running) return
+    root.screensaver = payload.mode === "screensaver"
+    root.searchMode = payload.mode === "search"
+    root.searchPrompt = root.searchMode
+    root.article = null
+    root.searchMessage = "Enter a Wikipedia article title."
+    if (root.searchMode) {
+      root.paused = false
+      root.opened = true
+      return
+    }
 
     root.paused = false
     root.captureStamp = String(Date.now())
@@ -58,6 +110,7 @@ Item {
   }
 
   function close() {
+    if (root.articleClient) root.articleClient.cancel()
     root.opened = false
     cleanup.running = true
   }
