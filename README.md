@@ -94,10 +94,10 @@ The existing temporary screenshots are still used only in screenshot mode.
 Search is available in the Omarchy plugin; the browser build keeps its existing
 page and paste behavior.
 
-The desktop spider starts at scale 0.70; `+` and `-` still adjust it. Its new
+The desktop spider starts at scale 0.714; `+` and `-` still adjust it. Its new
 leg proportions follow the widow's 1–4–2–3 order, with the front pair at 1.5×.
 At that scale, alternating steps take 94 ms and nominal burst speed is
-444 px/s. Roaming rests last 150–380 ms; click and follow rests last 25–50 ms.
+446 px/s. Roaming rests last 150–380 ms; click and follow rests last 25–50 ms.
 
 ### Screensaver
 

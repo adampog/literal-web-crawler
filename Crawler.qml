@@ -94,7 +94,7 @@ Item {
   property string captureStamp: ""
 
   // Settings shared by every screen. The keyboard controls change these.
-  property real size: 0.7
+  property real size: 0.714
   property real ripRate: 0.35
   property bool paused: false
   property bool follow: false

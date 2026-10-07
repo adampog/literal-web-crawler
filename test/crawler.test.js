@@ -68,7 +68,7 @@ test("desktop click crosses half of 3440 pixels within eight seconds without gli
   host.bounds = () => ({left:0,top:0,right:3440,bottom:1440});
   host.footholdNear = (x,y) => ({x,y,chunk:null});
   const spider = core.createCrawler(host);
-  spider.size = .7; spider.a = 0; spider.placeAt(860,720); spider.sendTo(2580,720);
+  spider.size = .714; spider.a = 0; spider.placeAt(860,720); spider.sendTo(2580,720);
   for (let frame=0;frame<480 && spider.tap;frame++) {
     const old = {x:spider.x,y:spider.y};
     const feet = spider.feet.map(f => ({x:f.x,y:f.y,swing:f.swing}));
@@ -429,6 +429,6 @@ test("desktop default footprint is smaller than the original at true screen scal
   const width = Math.max(...xs)-Math.min(...xs); const height = Math.max(...ys)-Math.min(...ys);
   // bb4fa73 at size1, neutral pose: 107.26 x 124 logical pixels.
   assert.ok(width < 107.26 && height < 124, `${width} x ${height}`);
-  assert.ok(Math.abs(width-101.48085681546) < 1e-6);
-  assert.ok(Math.abs(height-85.64358545843) < 1e-6);
+  assert.ok(Math.abs(width-103.5104739517692) < 1e-6);
+  assert.ok(Math.abs(height-87.3564571675986) < 1e-6);
 });
