@@ -122,8 +122,8 @@ function createCrawler(host) {
   /** Coxae spread along the cephalothorax rim, with the front pair forward. */
   c.hip = function (f) {
     var angle = LEG_ANGLES[f.i];
-    var fw = (6 + 10 * Math.cos(angle)) * c.size;
-    var lat = f.side * 8 * Math.sin(angle) * c.size;
+    var fw = (6 + 13 * Math.cos(angle)) * c.size;
+    var lat = f.side * 11 * Math.sin(angle) * c.size;
     return { x: c.x + Math.cos(c.a) * fw - Math.sin(c.a) * lat,
       y: c.y + Math.sin(c.a) * fw + Math.cos(c.a) * lat, z: 8 * c.size + c.bob };
   };
@@ -349,10 +349,12 @@ function createCrawler(host) {
     var dx = tx - c.x;
     var dy = ty - c.y;
     var d = Math.hypot(dx, dy);
+    var commanded = !!c.tap || (c.mode === "follow" && !!c.pointer);
+    if (commanded && c.locomotion === "pause") c.phaseRemaining = Math.min(c.phaseRemaining, 0.08);
     c.phaseRemaining = Math.max(0, c.phaseRemaining - dt);
     if (c.phaseRemaining === 0 && c.gaitPhase >= 1) {
       c.locomotion = c.locomotion === "pause" ? "burst" : "pause";
-      c.phaseRemaining = c.locomotion === "burst" ? 0.9 + Math.random() * 1.1 : 0.25 + Math.random() * 0.4;
+      c.phaseRemaining = c.locomotion === "burst" ? 0.9 + Math.random() * 1.1 : (commanded ? 0.04 + Math.random() * 0.04 : 0.25 + Math.random() * 0.4);
     }
     var heading = d > 6 ? Math.atan2(dy, dx) : c.a;
     var maxV = Math.min(180 + 60 * c.size, d * 2.5);
@@ -603,6 +605,25 @@ function drawSpider(ctx, c, theme) {
     ctx.globalAlpha = 1;
   }
 
+  // Occlude legs beneath the translucent abdomen without painting over the page.
+  // Opposite winding makes the abdomen a hole in the leg drawing region.
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(c.x - 10000 * s, c.y - 10000 * s);
+  ctx.lineTo(c.x + 10000 * s, c.y - 10000 * s);
+  ctx.lineTo(c.x + 10000 * s, c.y + 10000 * s);
+  ctx.lineTo(c.x - 10000 * s, c.y + 10000 * s);
+  ctx.lineTo(c.x - 10000 * s, c.y - 10000 * s);
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  ctx.rotate(c.a + c.lean);
+  var bodyScale = 1 + c.bob / s * 0.008;
+  ctx.scale(bodyScale, bodyScale * 17 / 19);
+  ctx.moveTo(-s, 0);
+  ctx.arc(-20 * s, 0, 19 * s, 0, Math.PI * 2, true);
+  ctx.restore();
+  ctx.clip();
+
   // Legs: hip -> knee -> ankle -> foot, using the shared three-segment IK.
   for (var n = 0; n < c.feet.length; n++) {
     var f = c.feet[n];
@@ -650,7 +671,9 @@ function drawSpider(ctx, c, theme) {
     ctx.fill();
   }
 
-  // Translucent round abdomen, smaller cephalothorax, red hourglass and eyes.
+  ctx.restore();
+
+  // Translucent round abdomen, cephalothorax, red hourglass and eyes.
   ctx.save();
   ctx.translate(c.x, c.y);
   var breathe = 1 + c.bob / s * 0.008;
@@ -661,12 +684,12 @@ function drawSpider(ctx, c, theme) {
   ctx.lineWidth = 1.7 * s;
   ctx.globalAlpha = 0.25;
   oval(ctx, -20 * s, 0, 19 * s, 17 * s);
-  oval(ctx, 6 * s, 0, 10 * s, 8 * s);
+  oval(ctx, 6 * s, 0, 13 * s, 11 * s);
   ctx.globalAlpha = 1;
   // Re-outline at full strength; the page stays visible through the body.
   ctx.fillStyle = "transparent";
   oval(ctx, -20 * s, 0, 19 * s, 17 * s);
-  oval(ctx, 6 * s, 0, 10 * s, 8 * s);
+  oval(ctx, 6 * s, 0, 13 * s, 11 * s);
   ctx.shadowColor = "#ff304b";
   ctx.shadowBlur = 10 * s;
   ctx.fillStyle = "#ff304b";
@@ -683,7 +706,7 @@ function drawSpider(ctx, c, theme) {
   ctx.fillStyle = theme.eyes || theme.accent;
   for (var e = -1; e <= 1; e += 2) {
     ctx.beginPath();
-    ctx.arc(14 * s, e * 2.4 * s, 1.4 * s, 0, Math.PI * 2);
+    ctx.arc(17 * s, e * 2.4 * s, 1.4 * s, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.shadowBlur = 0;

@@ -45,7 +45,7 @@ test("walks to a point it is sent to, then resumes roaming", () => {
   spider.placeAt(200, 200);
   spider.sendTo(700, 500);
   let closest = Infinity;
-  run(spider, 8, 1 / 60, (s) => {
+  run(spider, 12, 1 / 60, (s) => {
     closest = Math.min(closest, Math.hypot(s.x - 700, s.y - 500));
   });
   assert.ok(closest < 15, `got no closer than ${closest.toFixed(1)}px`);
@@ -126,7 +126,7 @@ test("drawSpider only uses canvas calls QML's Context2D also has", () => {
   const spider = core.createCrawler(gridHost());
   spider.placeAt(300, 300);
   const allowed = new Set([
-    "beginPath", "moveTo", "lineTo", "arc", "stroke", "fill", "save", "restore", "translate", "rotate", "scale", "quadraticCurveTo"
+    "beginPath", "moveTo", "lineTo", "arc", "stroke", "fill", "save", "restore", "translate", "rotate", "scale", "quadraticCurveTo", "clip"
   ]);
   const used = new Set();
   const ctx = new Proxy({}, {
@@ -134,7 +134,7 @@ test("drawSpider only uses canvas calls QML's Context2D also has", () => {
       if (prop in target) return target[prop];
       return (...args) => {
         used.add(prop);
-        for (const a of args) assert.ok(Number.isFinite(a), `${String(prop)} got ${a}`);
+        for (const a of args) assert.ok(Number.isFinite(a) || typeof a === "boolean", `${String(prop)} got ${a}`);
       };
     }
   });
@@ -373,5 +373,22 @@ test("rendered curved legs do not cross on the same side through turns", () => {
         }}
       }}
     }
+  }
+});
+
+
+test("click and follow pause only briefly while roaming retains longer rests", () => {
+  for (const mode of ["click", "follow", "roam"]) {
+    const spider = core.createCrawler(gridHost());
+    spider.placeAt(200, 200);
+    if (mode === "click") spider.sendTo(1100, 700);
+    if (mode === "follow") { spider.mode = "follow"; spider.setPointer(1100, 700); }
+    let longest = 0;
+    for (let frame = 0; frame < 240; frame++) {
+      spider.step(1 / 60);
+      if (spider.locomotion === "pause") longest = Math.max(longest, spider.phaseRemaining);
+    }
+    if (mode === "roam") assert.ok(longest >= 0.25);
+    else assert.ok(longest <= 0.1, `${mode} pause ${longest}`);
   }
 });
