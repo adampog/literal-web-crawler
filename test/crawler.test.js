@@ -63,21 +63,28 @@ test("feet stay within reach of the body while walking", () => {
   });
 });
 
-test("desktop click crosses half of 3440 pixels within eight seconds without gliding", () => {
-  const host = gridHost();
-  host.bounds = () => ({left:0,top:0,right:3440,bottom:1440});
-  host.footholdNear = (x,y) => ({x,y,chunk:null});
-  const spider = core.createCrawler(host);
-  spider.size = .714; spider.a = 0; spider.placeAt(860,720); spider.sendTo(2580,720);
-  for (let frame=0;frame<480 && spider.tap;frame++) {
-    const old = {x:spider.x,y:spider.y};
-    const feet = spider.feet.map(f => ({x:f.x,y:f.y,swing:f.swing}));
-    spider.step(1/60);
-    if (Math.hypot(spider.x-old.x,spider.y-old.y)>1e-8) {
-      assert.ok(spider.feet.filter((f,i) => !f.swing && !feet[i].swing && Math.hypot(f.x-feet[i].x,f.y-feet[i].y)<1e-8).length>=4);
+test("desktop click crosses half of 3440 pixels within 8.5 seconds without gliding across fixed seeds", () => {
+  const random = Math.random;
+  try {
+    for (const seed of [1, 2, 3, 4, 5, 7, 11, 19, 42, 123]) {
+      let state = seed;
+      Math.random = () => ((state = (1664525 * state + 1013904223) >>> 0) / 4294967296);
+      const host = gridHost();
+      host.bounds = () => ({left:0,top:0,right:3440,bottom:1440});
+      host.footholdNear = (x,y) => ({x,y,chunk:null});
+      const spider = core.createCrawler(host);
+      spider.size = .714; spider.a = 0; spider.placeAt(860,720); spider.sendTo(2580,720);
+      for (let frame=0;frame<510 && spider.tap;frame++) {
+        const old = {x:spider.x,y:spider.y};
+        const feet = spider.feet.map(f => ({x:f.x,y:f.y,swing:f.swing}));
+        spider.step(1/60);
+        if (Math.hypot(spider.x-old.x,spider.y-old.y)>1e-8) {
+          assert.ok(spider.feet.filter((f,i) => !f.swing && !feet[i].swing && Math.hypot(f.x-feet[i].x,f.y-feet[i].y)<1e-8).length>=4);
+        }
+      }
+      assert.equal(spider.tap,null,`seed ${seed}: 1720px click did not arrive within 8.5 seconds`);
     }
-  }
-  assert.equal(spider.tap,null,"1720px click did not arrive within 8 seconds");
+  } finally { Math.random = random; }
 });
 
 test("alternating tetrapod gait: the two leg groups never swing together", () => {
@@ -255,31 +262,44 @@ function segmentsCross(a, b, c, d) {
   return turn(a,b,c)*turn(a,b,d) < -1e-8 && turn(c,d,a)*turn(c,d,b) < -1e-8;
 }
 
-test("leg roots and planted same-side legs do not cross while walking and turning", () => {
-  for (const size of [0.5, 1, 2.5]) {
-  const spider = core.createCrawler(gridHost());
-  spider.size = size;
-  spider.a = 0;
-  spider.placeAt(300, 300);
-  spider.mode = "follow";
-  for (let frame = 0; frame < 900; frame++) {
-    const angle = Math.floor(frame / 150) * Math.PI / 3;
-    spider.setPointer(600 + 250 * Math.cos(angle), 400 + 200 * Math.sin(angle));
-    spider.step(1 / 60);
-    for (const side of [-1, 1]) {
-      const feet = spider.feet.filter((f) => f.side === side);
-      const legs = feet.map((f) => core.legJoints(spider, f));
-      for (let i = 0; i < 4; i++) {for (let j = i + 1; j < 4; j++) {
-        for (let a = 0; a < 3; a++) {for (let b = 0; b < 3; b++) {
-          const moving = feet[i].group !== feet[j].group || feet[i].swing || feet[j].swing;
-          if (moving && (a !== 0 || b !== 0)) continue;
-          const rootEnd = (leg) => ({x:leg[0].x+(leg[1].x-leg[0].x)*0.3,y:leg[0].y+(leg[1].y-leg[0].y)*0.3});
-          assert.ok(!segmentsCross(legs[i][a], moving ? rootEnd(legs[i]) : legs[i][a+1], legs[j][b], moving ? rootEnd(legs[j]) : legs[j][b+1]), `frame ${frame}, side ${side}, legs ${i}/${j}`);
-        }}
-      }}
+function forEachCrossingCase(check) {
+  const random = Math.random;
+  try {
+    for (const seed of [1, 2, 3, 4, 5, 7, 11, 19, 42, 123]) {
+      for (const size of [0.5, 0.714, 1, 2.5]) {
+        let state = seed;
+        Math.random = () => ((state = (1664525 * state + 1013904223) >>> 0) / 4294967296);
+        check(seed, size);
+      }
     }
-  }
-  }
+  } finally { Math.random = random; }
+}
+
+test("leg roots and planted same-side legs do not cross while walking and turning", () => {
+  forEachCrossingCase((seed, size) => {
+    const spider = core.createCrawler(gridHost());
+    spider.size = size;
+    spider.a = 0;
+    spider.placeAt(300, 300);
+    spider.mode = "follow";
+    for (let frame = 0; frame < 900; frame++) {
+      const angle = Math.floor(frame / 150) * Math.PI / 3;
+      spider.setPointer(600 + 250 * Math.cos(angle), 400 + 200 * Math.sin(angle));
+      spider.step(1 / 60);
+      for (const side of [-1, 1]) {
+        const feet = spider.feet.filter((f) => f.side === side);
+        const legs = feet.map((f) => core.legJoints(spider, f));
+        for (let i = 0; i < 4; i++) {for (let j = i + 1; j < 4; j++) {
+          for (let a = 0; a < 3; a++) {for (let b = 0; b < 3; b++) {
+            const moving = feet[i].group !== feet[j].group || feet[i].swing || feet[j].swing;
+            if (moving && (a !== 0 || b !== 0)) continue;
+            const rootEnd = (leg) => ({x:leg[0].x+(leg[1].x-leg[0].x)*0.3,y:leg[0].y+(leg[1].y-leg[0].y)*0.3});
+            assert.ok(!segmentsCross(legs[i][a], moving ? rootEnd(legs[i]) : legs[i][a+1], legs[j][b], moving ? rootEnd(legs[j]) : legs[j][b+1]), `seed ${seed}, size ${size}, frame ${frame}, side ${side}, legs ${i}/${j}`);
+          }}
+        }}
+      }
+    }
+  });
 });
 
 test("burst and pause clocks are bounded; movement is carried by stationary planted feet", () => {
@@ -350,7 +370,7 @@ test("swing tetrapod lifts feet in an arc while the stance tetrapod stays on the
 });
 
 test("rendered roots and planted same-side legs do not cross through turns", () => {
-  for (const size of [0.5, 1, 2.5]) {
+  forEachCrossingCase((seed, size) => {
     const spider = core.createCrawler(gridHost());
     spider.size = size;
     spider.a = 0;
@@ -390,12 +410,12 @@ test("rendered roots and planted same-side legs do not cross through turns", () 
           const p=curves[i*3+a],q=curves[j*3+b];
           const end = spider.feet[i].group !== spider.feet[j].group || spider.feet[i].swing || spider.feet[j].swing ? 2 : 8;
           for(let k=0;k<end;k++){for(let l=0;l<end;l++) {
-            assert.ok(!segmentsCross(p[k],p[k+1],q[l],q[l+1]),`size ${size}, frame ${frame}, legs ${i}/${j}`);
+            assert.ok(!segmentsCross(p[k],p[k+1],q[l],q[l+1]),`seed ${seed}, size ${size}, frame ${frame}, legs ${i}/${j}`);
           }}
         }}
       }}
     }
-  }
+  });
 });
 
 

@@ -140,7 +140,8 @@ function createCrawler(host) {
     var lat = (-dx * fy + dy * fx) * f.side;
     var r = c.legReach(f);
     var distance = clamp(Math.hypot(fw, lat), r * 0.35, r * 1.2);
-    var margin = 55 * Math.PI / 180;
+    // Broader sectors let planted same-group shins cross during turns.
+    var margin = 45 * Math.PI / 180;
     var minSide = Math.asin(Math.min(1, 20 * c.size / distance));
     var angle = clamp(Math.atan2(lat, fw), Math.max(LEG_ANGLES[f.i] - margin, minSide),
       Math.min(LEG_ANGLES[f.i] + margin, Math.PI - minSide));
