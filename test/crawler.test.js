@@ -126,7 +126,7 @@ test("drawSpider only uses canvas calls QML's Context2D also has", () => {
   const spider = core.createCrawler(gridHost());
   spider.placeAt(300, 300);
   const allowed = new Set([
-    "beginPath", "moveTo", "lineTo", "arc", "stroke", "fill", "save", "restore", "translate", "rotate", "scale"
+    "beginPath", "moveTo", "lineTo", "arc", "stroke", "fill", "save", "restore", "translate", "rotate", "scale", "quadraticCurveTo"
   ]);
   const used = new Set();
   const ctx = new Proxy({}, {
@@ -140,7 +140,7 @@ test("drawSpider only uses canvas calls QML's Context2D also has", () => {
   });
   core.drawSpider(ctx, spider, { ink: "#fff", fill: "#000", accent: "#f0f", legs: ["#0ff", "#f0f", "#90f", "#fa0"] });
   for (const name of used) assert.ok(allowed.has(name), `uses ${name}`);
-  assert.ok(used.has("arc") && used.has("lineTo"));
+  assert.ok(used.has("arc") && used.has("quadraticCurveTo"));
 });
 
 test("front pair has one-and-a-half times the reach of every other leg", () => {
@@ -210,7 +210,9 @@ test("body stays translucent and hourglass stays red in light and dark themes", 
 });
 
 test("three-segment IK preserves every bone length and ends at the planted foot", () => {
+  for (const size of [0.5, 1, 2.5]) {
   const spider = core.createCrawler(gridHost());
+  spider.size = size;
   spider.placeAt(600, 400);
   spider.mode = "follow";
   for (let frame = 0; frame < 720; frame++) {
@@ -221,12 +223,155 @@ test("three-segment IK preserves every bone length and ends at the planted foot"
       const joints = core.legJoints(spider, f);
       assert.equal(joints.length, 4, "hip, knee, ankle, foot");
       for (let i = 0; i < 3; i++) {
-        const length = Math.hypot(joints[i+1].x - joints[i].x, joints[i+1].y - joints[i].y);
-        const expected = spider.legReach(f) * [0.55, 0.5, 0.35][i];
+        const length = Math.hypot(joints[i+1].x - joints[i].x, joints[i+1].y - joints[i].y, joints[i+1].z - joints[i].z);
+        const expected = spider.legReach(f) * [0.55, 0.25, 0.6][i];
         assert.ok(Math.abs(length - expected) < 1e-6, `bone ${i}: ${length} != ${expected}`);
       }
       assert.equal(joints[3].x, f.x);
       assert.equal(joints[3].y, f.y);
+    }
+  }
+  }
+});
+
+function segmentsCross(a, b, c, d) {
+  const turn = (p, q, r) => (q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);
+  return turn(a,b,c)*turn(a,b,d) < -1e-8 && turn(c,d,a)*turn(c,d,b) < -1e-8;
+}
+
+test("legs fan out without same-side segment intersections while walking and turning", () => {
+  for (const size of [0.5, 1, 2.5]) {
+  const spider = core.createCrawler(gridHost());
+  spider.size = size;
+  spider.a = 0;
+  spider.placeAt(300, 300);
+  spider.mode = "follow";
+  for (let frame = 0; frame < 900; frame++) {
+    const angle = Math.floor(frame / 150) * Math.PI / 3;
+    spider.setPointer(600 + 250 * Math.cos(angle), 400 + 200 * Math.sin(angle));
+    spider.step(1 / 60);
+    for (const side of [-1, 1]) {
+      const legs = spider.feet.filter((f) => f.side === side).map((f) => core.legJoints(spider, f));
+      for (let i = 0; i < 4; i++) {for (let j = i + 1; j < 4; j++) {
+        for (let a = 0; a < 3; a++) {for (let b = 0; b < 3; b++) {
+          assert.ok(!segmentsCross(legs[i][a], legs[i][a+1], legs[j][b], legs[j][b+1]), `frame ${frame}, side ${side}, legs ${i}/${j}`);
+        }}
+      }}
+    }
+  }
+  }
+});
+
+test("burst and pause clocks are bounded; movement is carried by stationary planted feet", () => {
+  const spider = core.createCrawler(gridHost());
+  spider.placeAt(300, 300);
+  spider.mode = "follow";
+  spider.setPointer(1050, 650);
+  const phases = new Set();
+  let moved = 0;
+  let probed = false;
+  for (let frame = 0; frame < 1200; frame++) {
+    const old = { x: spider.x, y: spider.y, a: spider.a };
+    const oldFeet = spider.feet.map((f) => ({x:f.x,y:f.y,swing:f.swing}));
+    spider.step(1/60);
+    phases.add(spider.locomotion);
+    assert.ok(spider.phaseRemaining >= 0 && spider.phaseRemaining <= 2.1);
+    const distance = Math.hypot(spider.x-old.x, spider.y-old.y);
+    if (distance > 1e-8 || Math.abs(spider.a-old.a) > 1e-8) {
+      moved += distance;
+      const supports = spider.feet.filter((f,i) => !f.swing && !oldFeet[i].swing && Math.hypot(f.x-oldFeet[i].x,f.y-oldFeet[i].y) < 1e-8);
+      assert.ok(supports.length >= 4, "body glides without four anchored feet");
+      assert.equal(spider.locomotion, "burst");
+    }
+    probed ||= spider.feet.some((f) => f.probing);
+  }
+  assert.ok(moved > 200, "never travelled");
+  assert.deepEqual([...phases].sort(), ["burst", "pause"]);
+  assert.ok(probed, "never tested a foothold");
+});
+
+test("body pose is solved from the four planted stance anchors", () => {
+  const spider = core.createCrawler(gridHost());
+  spider.a = 0;
+  spider.placeAt(300, 300);
+  spider.sendTo(900, 300);
+  let examined = false;
+  for (let i=0;i<120;i++) {
+    spider.step(1/60);
+    if (spider.gaitPhase > 0.2 && spider.gaitPhase < 0.7) {
+      const pose = spider.poseFromStance();
+      assert.ok(Math.hypot(pose.x-spider.x, pose.y-spider.y) < 1e-6);
+      assert.ok(Math.abs(core.angleDelta(pose.a,spider.a)) < 1e-6);
+      const supports=spider.feet.filter(f=>f.group!==spider.gaitGroup);
+      for(const f of supports){f.x+=17;f.y-=11;}
+      const shifted=spider.poseFromStance();
+      assert.ok(Math.abs(shifted.x-pose.x-17)<1e-6);
+      assert.ok(Math.abs(shifted.y-pose.y+11)<1e-6);
+      examined=true;
+      break;
+    }
+  }
+  assert.ok(examined);
+});
+
+test("swing tetrapod lifts feet in an arc while the stance tetrapod stays on the ground", () => {
+  const spider = core.createCrawler(gridHost());
+  spider.placeAt(300,300);spider.sendTo(900,300);
+  let lifted=0;
+  for(let i=0;i<360;i++){
+    spider.step(1/60);
+    for(const f of spider.feet){
+      assert.equal(f.group,(f.i+(f.side>0?1:0))%2);
+      if(!f.swing)assert.equal(f.z,0);
+      else if(f.t>.2&&f.t<.6){assert.ok(f.z>3*spider.size);lifted++;}
+    }
+  }
+  assert.ok(lifted>0);
+});
+
+test("rendered curved legs do not cross on the same side through turns", () => {
+  for (const size of [0.5, 1, 2.5]) {
+    const spider = core.createCrawler(gridHost());
+    spider.size = size;
+    spider.a = 0;
+    spider.placeAt(300, 300);
+    spider.mode = "follow";
+    let curves = [], start, curve;
+    const ctx = new Proxy({}, {
+      get(target, prop) {
+        if (prop in target) return target[prop];
+        if (prop === "beginPath") return () => { curve = null; };
+        if (prop === "moveTo") return (x,y) => { start = {x,y}; };
+        if (prop === "quadraticCurveTo") return (cx,cy,x,y) => { curve = {start,cx,cy,x,y}; };
+        if (prop === "stroke") {return () => {
+          if (!curve) return;
+          const points = [];
+          for (let i=0;i<=8;i++) {
+            const t=i/8, u=1-t;
+            points.push({x:u*u*curve.start.x+2*u*t*curve.cx+t*t*curve.x,
+              y:u*u*curve.start.y+2*u*t*curve.cy+t*t*curve.y});
+          }
+          curves.push(points);
+        };}
+        return () => {};
+      }
+    });
+    for (let frame=0;frame<900;frame++) {
+      const angle=Math.floor(frame/150)*Math.PI/3;
+      spider.setPointer(600+250*Math.cos(angle),400+200*Math.sin(angle));
+      spider.step(1/60);
+      curves=[];
+      core.drawSpider(ctx,spider,{ink:"#fff",fill:"#101820",accent:"#ff00ff",legs:core.CRAWLER_PALETTE});
+      assert.equal(curves.length,24);
+      for (let i=0;i<8;i++) {for(let j=i+1;j<8;j++) {
+        if(spider.feet[i].side!==spider.feet[j].side)continue;
+        for(let a=0;a<3;a++){for(let b=0;b<3;b++) {
+          const p=curves[i*3+a],q=curves[j*3+b];
+          for(let k=0;k<8;k++){for(let l=0;l<8;l++) {
+            assert.ok(!segmentsCross(p[k],p[k+1],q[l],q[l+1]),`size ${size}, frame ${frame}, legs ${i}/${j}`);
+          }}
+        }}
+      }}
     }
   }
 });
