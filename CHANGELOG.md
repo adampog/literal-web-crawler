@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+- **Back legs step properly.** The back pair no longer drags: its planted feet
+  stay put while the body turns, it steps with its own group instead of
+  stalling the body, and it reaches out behind the body less far (rear leg
+  angle 150° to 140°). Leg lengths are unchanged.
+
 ## 1.1.0
 
 - **Black widow look.** The spider keeps its see-through style, now with a

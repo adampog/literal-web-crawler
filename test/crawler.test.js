@@ -447,8 +447,35 @@ test("desktop default footprint is smaller than the original at true screen scal
   spider.size = defaultSize; spider.a = 0; spider.placeAt(1720,720);
   const xs = spider.feet.map(f => f.x); const ys = spider.feet.map(f => f.y);
   const width = Math.max(...xs)-Math.min(...xs); const height = Math.max(...ys)-Math.min(...ys);
-  // bb4fa73 at size1, neutral pose: 107.26 x 124 logical pixels.
+  // bb4fa73 at size1, neutral pose: 107.26 x 124 logical pixels. Width was
+  // 103.51 before the rear leg angle moved from 150 to 140 degrees (1.1.1).
   assert.ok(width < 107.26 && height < 124, `${width} x ${height}`);
-  assert.ok(Math.abs(width-103.5104739517692) < 1e-6);
+  assert.ok(Math.abs(width-98.19932535168346) < 1e-6);
   assert.ok(Math.abs(height-87.3564571675986) < 1e-6);
+});
+
+test("back legs step with their group and do not slide while planted, even in turns", () => {
+  const spider = core.createCrawler(gridHost());
+  spider.ripRate = 0;
+  spider.placeAt(600, 400);
+  const waypoints = [[1000, 700], [200, 650], [700, 100], [150, 300], [1100, 200]];
+  let next = 0;
+  const previous = spider.feet.map((f) => ({ swing: false, x: f.x, y: f.y }));
+  let slide = 0;
+  let swings = 0;
+  run(spider, 40, 1 / 60, (s) => {
+    if (!s.tap) { const w = waypoints[next++ % waypoints.length]; s.sendTo(w[0], w[1]); }
+    s.feet.forEach((f, n) => {
+      if (f.i !== 3) return;
+      const p = previous[n];
+      if (f.swing && !p.swing) {
+        swings++;
+        assert.equal(s.gaitGroup, f.group, "leg 4 swings in its own tetrapod group");
+      }
+      if (!f.swing && !p.swing) slide += Math.hypot(f.x - p.x, f.y - p.y);
+    });
+    s.feet.forEach((f, n) => { previous[n] = { swing: f.swing, x: f.x, y: f.y }; });
+  });
+  assert.ok(swings > 50, `leg 4 should keep stepping, got ${swings} swings`);
+  assert.ok(slide < 1, `planted back feet slid ${slide.toFixed(1)}px`);
 });

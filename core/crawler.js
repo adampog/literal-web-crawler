@@ -33,7 +33,7 @@ var CRAWLER_PALETTE = ["#55dcf2", "#e45cc0", "#9a82ff", "#ffb547"];
  * `f` is how far forward, `l` how far out to the side. Index 0 is the front leg.
  */
 var LEG_REACH_SCALE = [1.5, 1.05, 1, 1.2];
-var LEG_ANGLES = [30, 70, 110, 150].map(function (degrees) { return degrees * Math.PI / 180; });
+var LEG_ANGLES = [30, 70, 110, 140].map(function (degrees) { return degrees * Math.PI / 180; });
 
 /** Seconds a torn piece drifts at full opacity, then how long it takes to fade. */
 var PIECE_LIFE = 5;
