@@ -143,8 +143,11 @@ function createCrawler(host) {
     // Broader sectors let planted same-group shins cross during turns.
     var margin = 45 * Math.PI / 180;
     var minSide = Math.asin(Math.min(1, 20 * c.size / distance));
+    // The rear pair may sweep forward, but must not trail almost straight
+    // behind the body while a lateral stride turns the body underneath it.
+    var rearLimit = f.i === 3 ? 155 * Math.PI / 180 : Math.PI;
     var angle = clamp(Math.atan2(lat, fw), Math.max(LEG_ANGLES[f.i] - margin, minSide),
-      Math.min(LEG_ANGLES[f.i] + margin, Math.PI - minSide));
+      Math.min(LEG_ANGLES[f.i] + margin, Math.PI - minSide, rearLimit));
     fw = Math.cos(angle) * distance;
     lat = Math.sin(angle) * distance * f.side;
     var candidate = { x: c.x + fx * (fw + 6 * c.size) - fy * lat,

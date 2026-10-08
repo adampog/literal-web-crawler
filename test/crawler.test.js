@@ -454,6 +454,38 @@ test("desktop default footprint is smaller than the original at true screen scal
   assert.ok(Math.abs(height-87.3564571675986) < 1e-6);
 });
 
+test("rear feet stay within 155 degrees through lateral pans, turns and roaming", () => {
+  const random = Math.random;
+  try {
+    for (const seed of [1, 2, 12345]) {
+      for (const size of [.5, .714, 1, 2.5]) {
+        for (const mode of ["pan", "straight", "turns", "roam"]) {
+          let state = seed;
+          Math.random = () => ((state = (1664525 * state + 1013904223) >>> 0) / 4294967296);
+          const host = gridHost(); host.footholdNear = () => null;
+          const s = core.createCrawler(host);
+          s.size = size; s.ripRate = 0; s.placeAt(600,400);
+          if (mode === "pan") s.mode = "follow";
+          if (mode === "straight") s.sendTo(1100,400);
+          const waypoints = [[1000,700],[200,650],[700,100],[150,300],[1100,200]];
+          let next = 0;
+          for (let frame=0;frame<1800;frame++) {
+            if (mode === "pan") s.setPointer(s.x+(Math.floor(frame/30)%2 ? -500:500),s.y);
+            if (mode === "turns" && !s.tap) { const p=waypoints[next++%waypoints.length];s.sendTo(p[0],p[1]); }
+            s.step(1/60);
+            for (const f of s.feet.filter(foot => foot.i === 3)) {
+              const fw=(f.x-s.x)*Math.cos(s.a)+(f.y-s.y)*Math.sin(s.a)-6*s.size;
+              const lat=(-(f.x-s.x)*Math.sin(s.a)+(f.y-s.y)*Math.cos(s.a))*f.side;
+              const angle=Math.atan2(lat,fw)*180/Math.PI;
+              assert.ok(angle <= 155+1e-6, `${mode}, seed ${seed}, size ${size}, frame ${frame}: rear foot ${angle} degrees`);
+            }
+          }
+        }
+      }
+    }
+  } finally { Math.random = random; }
+});
+
 test("back legs step with their group and do not slide while planted, even in turns", () => {
   const spider = core.createCrawler(gridHost());
   spider.ripRate = 0;

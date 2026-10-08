@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2
+
+- **Back legs stay beside the body on sideways pans.** The rear feet no longer
+  sweep as far behind the body while it changes direction. Their rearward
+  excursion is capped at 155°, with the same leg lengths and tetrapod gait.
+
 ## 1.1.1
 
 - **Back legs step properly.** The back pair no longer drags: its planted feet
