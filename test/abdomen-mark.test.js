@@ -15,10 +15,10 @@ function trace(mark) {
   return calls;
 }
 
-test("mockup marks require an explicit option; unknown options keep the hourglass", () => {
+test("Arch marking requires an explicit option; unknown options keep the hourglass", () => {
   assert.deepEqual(trace(), trace("hourglass"));
   assert.deepEqual(trace(), trace("unknown"));
-  assert.notDeepEqual(trace(), trace("omarchy"));
+  assert.deepEqual(trace(), trace("omarchy"));
   assert.notDeepEqual(trace(), trace("arch"));
   assert.notDeepEqual(trace("omarchy"), trace("arch"));
 });

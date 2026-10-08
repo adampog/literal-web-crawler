@@ -42,7 +42,8 @@ PanelWindow {
     fill: String(Color.background),
     accent: String(Color.accent),
     eyes: Core.CRAWLER_PALETTE[0],
-    legs: Core.CRAWLER_PALETTE
+    legs: Core.CRAWLER_PALETTE,
+    abdomenMark: win.host.marking
   })
 
   // The engine's view of this screen (see the host contract in core/crawler.js).

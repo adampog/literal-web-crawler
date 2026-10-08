@@ -37,6 +37,26 @@ o.bind("SUPER + ALT + W", "Literal web crawler", "omarchy-shell shell toggle io.
 
 `SUPER + ALT + W` is free in Omarchy's default bindings. Press it again to close.
 
+### Abdomen marking
+
+The red hourglass is the default. To opt into the Arch Linux triangle on your
+own install, edit `~/.config/omarchy/shell.json`. In the top-level `plugins`
+array, find the entry whose `id` is `io.github.adampog.literal-web-crawler`
+and add `"marking": "arch"` directly on that entry:
+
+```json
+{ "id": "io.github.adampog.literal-web-crawler", "marking": "arch" }
+```
+
+Keep the rest of your existing file and entry fields. This is an inline field,
+not a `config` sub-object. Set `"marking": "hourglass"` or remove the field to
+restore the default. Unknown values and unavailable or malformed settings fall
+back to the hourglass. The plugin watches this file read-only; it never saves
+settings. Omarchy 4.0.4's overlay loader does not inject per-entry settings, so
+the plugin reads only its own entry from that file.
+
+The Arch Linux logo is a trademark; see [artwork provenance and terms](THIRD_PARTY.md).
+
 ### Controls
 
 | Key | Does |

@@ -1,23 +1,7 @@
-# Mockup artwork sources
+# Arch Linux artwork source
 
-These two optional abdomen marks are local design experiments, not the default
-or a released branding change. Neither project endorses this plugin.
-
-## Omarchy
-
-The orthogonal contours in `omarchyMarkPath` were traced from the black pixels of
-`/usr/share/omarchy/icon.png` (300 × 300), without the green background. The
-installed `logo.svg` is the wide OMARCHY wordmark, so the compact icon was used.
-The outline preserves proportions, is rotated to face the spider's head, and is
-rendered red with translucent fill and glow. No bitmap is loaded at runtime.
-
-The installed tree has no LICENSE at its root. The upstream repository identifies
-itself as MIT licensed: https://github.com/omacom/omarchy and
-https://raw.githubusercontent.com/omacom/omarchy/master/LICENSE (checked 2026-10-08).
-The copyright and permission notice is retained in `licenses/omarchy-MIT.txt`.
-The repository root listing, LICENSE and branding manual inspected did not state
-a separate logo trademark grant. This is a scoped observation, not trademark
-clearance. Branding manual: https://github.com/omacom/omarchy/blob/quattro/manual/41-branding.md.
+The optional abdomen mark is selected explicitly with marking: arch. The
+hourglass remains the default. Arch Linux does not endorse this plugin.
 
 ## Arch Linux
 
@@ -36,7 +20,7 @@ The policy permits specified noncommercial community uses without implying
 endorsement; other uses require permission. It requires the TM declaration to
 remain intact and scaling to preserve proportions, and discusses monochrome
 versions on busy backgrounds. A red outlined translucent mascot treatment is
-not expressly addressed. Keeping its TM paths in this private mockup does not
+not expressly addressed. Keeping its TM paths in this optional marking does not
 establish permission to distribute that treatment. Before a release chooses this
 variant, the human should resolve that use against the policy, including the
 unreadable TM detail. No trademark permission has been requested or obtained.

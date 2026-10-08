@@ -25,6 +25,38 @@ Item {
 
   readonly property string pluginId: (manifest && manifest.id) || "io.github.adampog.literal-web-crawler"
 
+  // Omarchy 4.0.4 does not inject inline settings into overlay entry points.
+  // Read only our entry; never write shell.json or retain unrelated settings.
+  property string marking: "hourglass"
+
+  function loadMarking(raw) {
+    root.marking = "hourglass"
+    try {
+      var config = JSON.parse(raw || "")
+      if (!config || config.version !== 1 || !Array.isArray(config.plugins)) return
+      for (var i = 0; i < config.plugins.length; i++) {
+        var entry = config.plugins[i]
+        if (entry && entry.id === root.pluginId) {
+          root.marking = entry.marking === "arch" ? "arch" : "hourglass"
+          return
+        }
+      }
+    } catch (error) { /* Missing or invalid settings keep the default. */ }
+  }
+
+  FileView {
+    id: markingConfig
+    path: Quickshell.env("HOME") + "/.config/omarchy/shell.json"
+    watchChanges: true
+    preload: true
+    blockLoading: false
+    blockAllReads: false
+    printErrors: false
+    onLoaded: root.loadMarking(markingConfig.text())
+    onLoadFailed: root.loadMarking("")
+    onFileChanged: markingConfig.reload()
+  }
+
   // The host reads `opened`; the screens are only created while it is true.
   property bool opened: false
   property bool screensaver: false

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.3
+
+- **Optional Arch marking.** Set `marking: "arch"` on this plugin's entry in
+  `shell.json` for a red translucent Arch Linux triangle. The hourglass remains
+  the default; missing or invalid settings fall back to it. Settings are read-only.
+
 ## 1.1.2
 
 - **Back legs stay beside the body on sideways pans.** The rear feet no longer
