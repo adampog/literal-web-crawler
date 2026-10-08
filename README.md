@@ -147,6 +147,7 @@ omarchy plugin remove io.github.adampog.literal-web-crawler
 
 The plugin needs no build step. To run the linters and tests, or to work on
 the browser version, see [docs/development.md](docs/development.md).
+What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

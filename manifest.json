@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.adampog.literal-web-crawler",
   "name": "Literal Web Crawler",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "adampog",
   "license": "MIT",
   "description": "A spider that crawls across a snapshot of your screen and tears pieces off it. Toggle it with a keybind, or let it be your screensaver.",
