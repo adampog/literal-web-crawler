@@ -717,13 +717,19 @@ function drawSpider(ctx, c, theme) {
   ctx.fillStyle = "#ff304b";
   ctx.strokeStyle = "#ff304b";
   ctx.beginPath();
-  ctx.moveTo(-29 * s, -7 * s);
-  ctx.lineTo(-11 * s, -7 * s);
-  ctx.lineTo(-20 * s, 0);
-  ctx.lineTo(-11 * s, 7 * s);
-  ctx.lineTo(-29 * s, 7 * s);
-  ctx.lineTo(-20 * s, 0);
-  ctx.lineTo(-29 * s, -7 * s);
+  if (theme.abdomenMark === "omarchy") {
+    omarchyMarkPath(ctx, s);
+  } else if (theme.abdomenMark === "arch") {
+    archMarkPath(ctx, s);
+  } else {
+    ctx.moveTo(-29 * s, -7 * s);
+    ctx.lineTo(-11 * s, -7 * s);
+    ctx.lineTo(-20 * s, 0);
+    ctx.lineTo(-11 * s, 7 * s);
+    ctx.lineTo(-29 * s, 7 * s);
+    ctx.lineTo(-20 * s, 0);
+    ctx.lineTo(-29 * s, -7 * s);
+  }
   ctx.globalAlpha = 0.25;
   ctx.fill();
   ctx.globalAlpha = 1;
@@ -756,4 +762,87 @@ function bodyPath(ctx, s) {
   ctx.arc(0, 0, 13 * s, -headAngle, headAngle);
   ctx.restore();
   ctx.closePath();
+}
+
+function omarchyMarkPath(ctx, s) {
+  ctx.lineWidth = 0.55 * s; // Preserve the narrow gaps at desktop scale.
+  // Exact orthogonal contours of /usr/share/omarchy/icon.png; see THIRD_PARTY.md.
+  ctx.moveTo(-11.000000 * s, -8.357143 * s);
+  ctx.lineTo(-11.000000 * s, -0.642857 * s);
+  ctx.lineTo(-12.285714 * s, -0.642857 * s);
+  ctx.lineTo(-12.285714 * s, -7.071429 * s);
+  ctx.lineTo(-18.714286 * s, -7.071429 * s);
+  ctx.lineTo(-18.714286 * s, -8.357143 * s);
+  ctx.closePath();
+  ctx.moveTo(-11.000000 * s, 0.642857 * s);
+  ctx.lineTo(-11.000000 * s, 8.357143 * s);
+  ctx.lineTo(-27.714286 * s, 8.357143 * s);
+  ctx.lineTo(-27.714286 * s, 1.928571 * s);
+  ctx.lineTo(-29.000000 * s, 1.928571 * s);
+  ctx.lineTo(-29.000000 * s, 0.642857 * s);
+  ctx.lineTo(-26.428571 * s, 0.642857 * s);
+  ctx.lineTo(-26.428571 * s, 7.071429 * s);
+  ctx.lineTo(-12.285714 * s, 7.071429 * s);
+  ctx.lineTo(-12.285714 * s, 4.500000 * s);
+  ctx.lineTo(-13.571429 * s, 4.500000 * s);
+  ctx.lineTo(-13.571429 * s, 5.785714 * s);
+  ctx.lineTo(-25.142857 * s, 5.785714 * s);
+  ctx.lineTo(-25.142857 * s, -5.785714 * s);
+  ctx.lineTo(-13.571429 * s, -5.785714 * s);
+  ctx.lineTo(-13.571429 * s, 0.642857 * s);
+  ctx.closePath();
+  ctx.moveTo(-20.000000 * s, -8.357143 * s);
+  ctx.lineTo(-20.000000 * s, -7.071429 * s);
+  ctx.lineTo(-26.428571 * s, -7.071429 * s);
+  ctx.lineTo(-26.428571 * s, -0.642857 * s);
+  ctx.lineTo(-27.714286 * s, -0.642857 * s);
+  ctx.lineTo(-27.714286 * s, -8.357143 * s);
+  ctx.closePath();
+}
+
+function archMarkPath(ctx, s) {
+  ctx.lineWidth = 0.55 * s;
+  // Installed archlinux-logo.svg, including TM; proportions preserved.
+  ctx.moveTo(-11.848672 * s, -0.001406 * s);
+  ctx.bezierCurveTo(-13.628211 * s, -0.726750 * s, -14.791602 * s, -1.164586 * s, -16.518125 * s, -1.972336 * s);
+  ctx.bezierCurveTo(-17.042720 * s, -1.477125 * s, -17.654094 * s, -0.869062 * s, -18.344633 * s, 0.118336 * s);
+  ctx.bezierCurveTo(-17.908203 * s, -0.943242 * s, -17.469594 * s, -1.667250 * s, -17.014461 * s, -2.208586 * s);
+  ctx.bezierCurveTo(-19.171648 * s, -3.242391 * s, -22.245078 * s, -4.862320 * s, -28.151258 * s, -8.149430 * s);
+  ctx.bezierCurveTo(-26.659297 * s, -5.565727 * s, -25.740031 * s, -3.562945 * s, -25.388750 * s, -1.696641 * s);
+  ctx.bezierCurveTo(-25.044605 * s, -1.776839 * s, -24.671914 * s, -1.822162 * s, -24.282453 * s, -1.819139 * s);
+  ctx.lineTo(-24.200054 * s, -1.816118 * s);
+  ctx.bezierCurveTo(-22.544124 * s, -1.775194 * s, -21.271890 * s, -0.914149 * s, -21.358163 * s, 0.105945 * s);
+  ctx.bezierCurveTo(-21.444409 * s, 1.126038 * s, -22.856945 * s, 1.918671 * s, -24.512874 * s, 1.877749 * s);
+  ctx.bezierCurveTo(-24.823789 * s, 1.870059 * s, -25.123988 * s, 1.834902 * s, -25.401695 * s, 1.773652 * s);
+  ctx.bezierCurveTo(-25.762595 * s, 3.619917 * s, -26.679976 * s, 5.601324 * s, -28.151265 * s, 8.149870 * s);
+  ctx.bezierCurveTo(-27.226234 * s, 7.647249 * s, -26.392327 * s, 7.198753 * s, -25.597796 * s, 6.770269 * s);
+  ctx.bezierCurveTo(-25.075121 * s, 6.095705 * s, -24.394257 * s, 5.391792 * s, -23.657593 * s, 3.956152 * s);
+  ctx.bezierCurveTo(-23.913573 * s, 4.942988 * s, -24.209659 * s, 5.649417 * s, -24.540366 * s, 6.200105 * s);
+  ctx.bezierCurveTo(-16.431929 * s, 1.844878 * s, -15.353335 * s, 1.492191 * s, -11.848960 * s, -0.001387 * s);
+  ctx.closePath();
+  ctx.moveTo(-25.808516 * s, 7.535391 * s);
+  ctx.lineTo(-25.398453 * s, 7.535391 * s);
+  ctx.lineTo(-25.398453 * s, 7.382405 * s);
+  ctx.lineTo(-25.343521 * s, 7.382405 * s);
+  ctx.lineTo(-25.343521 * s, 7.750723 * s);
+  ctx.lineTo(-25.398453 * s, 7.750723 * s);
+  ctx.lineTo(-25.398453 * s, 7.596914 * s);
+  ctx.lineTo(-25.808516 * s, 7.596914 * s);
+  ctx.lineTo(-25.808516 * s, 7.535391 * s);
+  ctx.moveTo(-25.808516 * s, 7.814531 * s);
+  ctx.lineTo(-25.343518 * s, 7.814531 * s);
+  ctx.lineTo(-25.343518 * s, 7.907091 * s);
+  ctx.lineTo(-25.672834 * s, 8.017228 * s);
+  ctx.bezierCurveTo(-25.703320 * s, 8.027390 * s, -25.726392 * s, 8.034531 * s, -25.741498 * s, 8.039201 * s);
+  ctx.bezierCurveTo(-25.724744 * s, 8.044694 * s, -25.699750 * s, 8.052934 * s, -25.667065 * s, 8.063920 * s);
+  ctx.lineTo(-25.343515 * s, 8.175428 * s);
+  ctx.lineTo(-25.343515 * s, 8.258102 * s);
+  ctx.lineTo(-25.808513 * s, 8.258102 * s);
+  ctx.lineTo(-25.808513 * s, 8.198776 * s);
+  ctx.lineTo(-25.419319 * s, 8.198776 * s);
+  ctx.lineTo(-25.808513 * s, 8.063642 * s);
+  ctx.lineTo(-25.808513 * s, 8.008161 * s);
+  ctx.lineTo(-25.412731 * s, 7.873850 * s);
+  ctx.lineTo(-25.808513 * s, 7.873850 * s);
+  ctx.lineTo(-25.808513 * s, 7.814524 * s);
 }
