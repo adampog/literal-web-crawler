@@ -55,9 +55,10 @@ back to the hourglass. The plugin watches this file read-only; it never saves
 settings. Omarchy 4.0.4's overlay loader does not inject per-entry settings, so
 the plugin reads only its own entry from that file.
 
-`omarchy plugin enable`, `disable` and `update` rewrite `shell.json` and keep
-only the entry's `id` and `enabled` fields, so they drop `"marking"`. Add
-`"marking": "arch"` back after any of them. After an update that changes the
+`omarchy plugin disable` removes the plugin's whole entry from `shell.json`,
+so `"marking"` goes with it, and `enable` then adds back a bare
+`{ "id": ... }` entry. Add `"marking": "arch"` back after disabling and
+re-enabling. After an update that changes the
 plugin's QML files, `disable` and `enable` are not enough, because Quickshell
 keeps the old QML cached: run `omarchy-restart-shell` to load the new version.
 
