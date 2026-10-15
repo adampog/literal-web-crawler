@@ -486,6 +486,37 @@ test("rear feet stay within 155 degrees through lateral pans, turns and roaming"
   } finally { Math.random = random; }
 });
 
+test("rear legs 3 and 4 stay inside the straight-walk envelope on sideways pans, turns and roaming", () => {
+  // 48251b7 straight walk (seed 12345, size 1): leg 3 spans 83.8-127.7 degrees,
+  // leg 4 111.2-152.1. Pans reached 65 and 108 there. Leg 3 may not pass its
+  // straight-walk maximum + 3; leg 3 stays >= 82 and leg 4 within 110-155.
+  const random = Math.random;
+  try {
+    for (const mode of ["pan", "turns", "roam"]) {
+      let state = 12345;
+      Math.random = () => ((state = (1664525 * state + 1013904223) >>> 0) / 4294967296);
+      const host = { footholdNear: () => null, tearOff() {}, removePiece() {}, bounds: () => ({ left: 0, top: 0, right: 3000, bottom: 800 }) };
+      const s = core.createCrawler(host);
+      s.ripRate = 0; s.placeAt(1500, 400);
+      if (mode === "pan") s.mode = "follow";
+      const waypoints = [[2200, 700], [800, 650], [1500, 100], [300, 300], [2600, 200], [1400, 750]];
+      let next = 0;
+      for (let frame = 0; frame < 5400; frame++) {
+        if (mode === "pan") s.setPointer(s.x + (Math.floor(frame / 30) % 2 ? -500 : 500), s.y);
+        if (mode === "turns" && !s.tap) { const p = waypoints[next++ % waypoints.length]; s.sendTo(p[0], p[1]); }
+        s.step(1 / 60);
+        for (const f of s.feet.filter(foot => foot.i >= 2)) {
+          const fw = (f.x - s.x) * Math.cos(s.a) + (f.y - s.y) * Math.sin(s.a) - 6 * s.size;
+          const lat = (-(f.x - s.x) * Math.sin(s.a) + (f.y - s.y) * Math.cos(s.a)) * f.side;
+          const angle = Math.atan2(lat, fw) * 180 / Math.PI;
+          const [lo, hi] = f.i === 2 ? [82, 127.66 + 3] : [110, 155];
+          assert.ok(angle >= lo - 1e-6 && angle <= hi + 1e-6, `${mode} frame ${frame}: leg ${f.i + 1} side ${f.side} at ${angle} degrees, allowed ${lo}-${hi}`);
+        }
+      }
+    }
+  } finally { Math.random = random; }
+});
+
 test("back legs step with their group and do not slide while planted, even in turns", () => {
   const spider = core.createCrawler(gridHost());
   spider.ripRate = 0;

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.4
+
+- **Back legs no longer splay on sideways movement.** During sideways pans, turns
+  and roaming, legs 3 and 4 stay inside the range a straight walk already uses
+  (leg 3 about 84-128°, leg 4 about 111-153° from the heading). They no longer
+  swing out toward perpendicular. Leg lengths, step order and tetrapod gait are unchanged.
+
 ## 1.1.3
 
 - **Optional Arch marking.** Set `marking: "arch"` on this plugin's entry in

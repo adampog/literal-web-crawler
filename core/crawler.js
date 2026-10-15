@@ -34,6 +34,12 @@ var CRAWLER_PALETTE = ["#55dcf2", "#e45cc0", "#9a82ff", "#ffb547"];
  */
 var LEG_REACH_SCALE = [1.5, 1.05, 1, 1.2];
 var LEG_ANGLES = [30, 70, 110, 140].map(function (degrees) { return degrees * Math.PI / 180; });
+// Foot-angle range (degrees from the heading) the rear pair keep to while
+// stepping sideways. It is the range a straight walk already uses, so a
+// sideways stride cannot swing them out toward perpendicular.
+var SIDESTEP_RELEASE = 0.9;
+var SIDESTEP_RISE = 0.5;
+var REAR_SIDESTEP_LIMITS = { 2: [83.5, 128], 3: [111, 153] };
 
 /** Seconds a torn piece drifts at full opacity, then how long it takes to fade. */
 var PIECE_LIFE = 5;
@@ -83,6 +89,7 @@ function createCrawler(host) {
     phaseRemaining: 0.18,
     gaitPhase: 1,
     gaitGroup: 1,
+    sidestep: 0,
     bob: 0,
     lean: 0
   };
@@ -161,6 +168,26 @@ function createCrawler(host) {
     if (span > r * 0.68) {
       candidate.x = kx + (candidate.x - kx) * r * 0.68 / span;
       candidate.y = ky + (candidate.y - ky) * r * 0.68 / span;
+    }
+    var limits = REAR_SIDESTEP_LIMITS[f.i];
+    if (limits && c.sidestep > 0) {
+      // The knee clamp can swing the foot past the sector above, so the
+      // rear pair are held to their sidestep range on the final foot.
+      var cx = candidate.x - c.x - fx * 6 * c.size;
+      var cy = candidate.y - c.y - fy * 6 * c.size;
+      var cfw = cx * fx + cy * fy;
+      var clat = (-cx * fy + cy * fx) * f.side;
+      var seen = Math.atan2(clat, cfw);
+      var free = f.i === 3 ? [95, 155] : [65, 155];
+      var grip = Math.min(1, c.sidestep * 3);
+      var lo = (free[0] + (limits[0] - free[0]) * grip) * Math.PI / 180;
+      var hi = (free[1] + (limits[1] - free[1]) * grip) * Math.PI / 180;
+      var held = clamp(seen, lo, hi);
+      if (held !== seen) {
+        var reach = Math.hypot(cfw, clat);
+        candidate.x = c.x + fx * (Math.cos(held) * reach + 6 * c.size) - fy * Math.sin(held) * reach * f.side;
+        candidate.y = c.y + fy * (Math.cos(held) * reach + 6 * c.size) + fx * Math.sin(held) * reach * f.side;
+      }
     }
     return candidate;
   }
@@ -389,6 +416,11 @@ function createCrawler(host) {
     if (c.gaitPhase >= 1 && c.locomotion === "burst" && d > 6 && c.phaseRemaining > 0) {
       c.gaitPhase = 0;
       c.gaitGroup = 1 - c.gaitGroup;
+      // 0 walking along the facing, 1 stepping clearly sideways to it. The
+      // rear pair let go of the sidestep range only gradually, as the body
+      // turns to face the new heading over several steps.
+      c.sidestep = Math.max(Math.min(c.sidestep + SIDESTEP_RISE, clamp((Math.abs(Math.sin(heading - c.a)) - 0.12) / 0.12, 0, 1)),
+        c.sidestep * SIDESTEP_RELEASE);
       c.pushX = Math.cos(heading - c.a) * maxV * duration * 2 / Math.PI;
       c.pushY = Math.sin(heading - c.a) * maxV * duration * 2 / Math.PI;
       c.pushTurn = clamp(angleDelta(c.a, heading), -1.5 * duration * 2 / Math.PI, 1.5 * duration * 2 / Math.PI);
