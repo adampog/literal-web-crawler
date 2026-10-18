@@ -421,6 +421,11 @@ function createCrawler(host) {
       // turns to face the new heading over several steps.
       c.sidestep = Math.max(Math.min(c.sidestep + SIDESTEP_RISE, clamp((Math.abs(Math.sin(heading - c.a)) - 0.12) / 0.12, 0, 1)),
         c.sidestep * SIDESTEP_RELEASE);
+      // The lateral workspace is narrower than the fore/aft workspace. Plan
+      // shorter whole-body strides instead of clipping individual rear feet.
+      var lateralStride = Math.max(c.sidestep,
+        clamp((Math.abs(Math.sin(heading - c.a)) - 0.12) / 0.25, 0, 1));
+      maxV *= 1 - lateralStride * 0.9;
       c.pushX = Math.cos(heading - c.a) * maxV * duration * 2 / Math.PI;
       c.pushY = Math.sin(heading - c.a) * maxV * duration * 2 / Math.PI;
       c.pushTurn = clamp(angleDelta(c.a, heading), -1.5 * duration * 2 / Math.PI, 1.5 * duration * 2 / Math.PI);
@@ -435,9 +440,20 @@ function createCrawler(host) {
           continue;
         }
         var target = c.idealFoot(moving);
+        if (lateralStride > 0) {
+          var neutral = reachable(moving, target.x, target.y);
+          var nx = neutral.x - c.x;
+          var ny = neutral.y - c.y;
+          var anticipate = c.pushTurn;
+          var rotatedX = nx * Math.cos(anticipate) - ny * Math.sin(anticipate);
+          var rotatedY = nx * Math.sin(anticipate) + ny * Math.cos(anticipate);
+          target.x += (rotatedX - (target.x - c.x)) * lateralStride;
+          target.y += (rotatedY - (target.y - c.y)) * lateralStride;
+        }
         lift(moving, target.x + Math.cos(heading) * maxV * duration,
           target.y + Math.sin(heading) * maxV * duration, maxV);
         moving.dur = duration;
+        moving.lateralStride = lateralStride;
       }
     }
     var cycling = c.gaitPhase < 1;
@@ -497,7 +513,7 @@ function createCrawler(host) {
         f.z = f.t < 0.8 ? Math.sin(Math.PI * f.t / 0.8) * 12 * c.size
           : Math.sin((f.t - 0.8) / 0.2 * Math.PI) * 1.5 * c.size;
         var e = easeInOut(Math.min(1, f.t / 0.8));
-        var tap = f.probing ? Math.sin((f.t - 0.8) / 0.2 * Math.PI * 2) * 2 * c.size : 0;
+        var tap = f.probing ? Math.sin((f.t - 0.8) / 0.2 * Math.PI * 2) * 2 * c.size * (1 - (f.lateralStride || 0)) : 0;
         var next = reachable(f, f.fromX + (f.toX - f.fromX) * e - Math.sin(c.a) * tap * f.side,
           f.fromY + (f.toY - f.fromY) * e + Math.cos(c.a) * tap * f.side);
         f.vx = (next.x - f.x) / dt;
