@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.5
+
+- Plan sideways steps and body turns together so the rear legs keep a relaxed
+  pose instead of folding inward or making clipped corrective swings. Moving
+  pointer corrections use short lateral steps; sustained destinations turn the
+  spider toward the target before walking. Straight walking is unchanged.
+
 ## 1.1.4
 
 - **Back legs no longer splay on sideways movement.** During sideways pans, turns

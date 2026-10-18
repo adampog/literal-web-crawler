@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { scenario } = require('./gait-metrics.cjs');
+const { loadCore } = require('./load-core');
+const { createHash } = require('node:crypto');
 
 // Measured on 410cfa2 before implementation; pooled left/right straight ranges.
 // Angular tolerance=max(3 degrees,5% width). Other units use 5% width.
@@ -20,9 +22,52 @@ for (const name of ['pan','side-left','side-right','side-left-free','side-right-
         }
       }
       assert.equal(leg.phase[1],0,'tetrapod group offset');
+      assert.ok(Math.abs(leg.stepsPerSecond-4.846153846153846)<=4.846153846153846*.05,'cadence outside 5% straight reference');
+      assert.ok(leg.flips<=127*1.05,'more projected knee bend flips than straight');
       assert.ok(leg.slide<1,'rear planted feet must not slide');
       assert.ok(leg.lift>0,'swing lifts');
     }
     assert.equal(errors.join('\n'),'');
   });
 }
+
+test('straight gait metrics for all eight legs and sampled poses remain exactly 410cfa2', () => {
+  const expected = require('./fixtures/straight-410cfa2.json');
+  const actual = scenario('straight');
+  assert.equal(JSON.stringify(actual.legs), JSON.stringify(expected.legs));
+  assert.equal(createHash('sha256').update(JSON.stringify(actual.frames)).digest('hex'),expected.poseHash);
+});
+
+test('lateral and straight handover stays in one tetrapod cycle with fixed stance feet', () => {
+  const core = loadCore('crawler.js');
+  const savedRandom = Math.random;
+  let seed = 12345;
+  Math.random = () => ((seed = (1664525 * seed + 1013904223) >>> 0) / 4294967296);
+  try {
+    const c = core.createCrawler({footholdNear:()=>null,tearOff(){},removePiece(){},bounds:()=>({left:-10000,top:-10000,right:10000,bottom:10000})});
+    c.ripRate = 0; c.mode = 'follow'; c.placeAt(0,0);
+    let lateral = false, returned = false;
+    for (let frame=0;frame<1500;frame++) {
+      const direction = c.a + (frame>=120 && frame<720 ? Math.PI/2 : 0);
+      c.setPointer(c.x+Math.cos(direction)*500,c.y+Math.sin(direction)*500);
+      const phase = c.gaitPhase, group = c.gaitGroup, x = c.x, y = c.y;
+      const feet = c.feet.map(f=>({x:f.x,y:f.y,swing:f.swing}));
+      c.step(1/60);
+      if (c.sidestep>.9) lateral = true;
+      if (frame>720 && lateral && c.sidestep<.001) returned = true;
+      const starts = c.feet.filter((f,i)=>f.swing&&!feet[i].swing);
+      if (starts.length) {
+        assert.equal(starts.length,4);
+        assert.equal(phase,1,'no extra step during a running cycle');
+        assert.equal(c.gaitGroup,1-group);
+      }
+      assert.ok(Math.hypot(c.x-x,c.y-y)<c.reach()*.2,'body handover snaps');
+      c.feet.forEach((f,i)=>{
+        const distance = Math.hypot(f.x-feet[i].x,f.y-feet[i].y);
+        assert.ok(distance<c.legReach(f)*.4,'foot handover snaps');
+        if (!f.swing&&!feet[i].swing) assert.ok(distance<1,'stance foot slides at handover');
+      });
+    }
+    assert.ok(lateral&&returned,'exercise both mode boundaries');
+  } finally { Math.random = savedRandom; }
+});

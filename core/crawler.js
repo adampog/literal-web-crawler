@@ -436,6 +436,14 @@ function createCrawler(host) {
       c.phaseRemaining = c.locomotion === "burst" ? 0.9 + Math.random() * 1.1 : (commanded ? 0.025 + Math.random() * 0.025 : 0.15 + Math.random() * 0.23);
     }
     var heading = d > 6 ? Math.atan2(dy, dx) : c.a;
+    // Follow a moving pointer with small lateral corrections. Once a target
+    // stays put, orient toward it before spending a long walk crabbing.
+    if (!c.lastTarget || Math.hypot(tx - c.lastTarget.x, ty - c.lastTarget.y) > 1) c.targetStill = 0;
+    else c.targetStill = (c.targetStill || 0) + dt;
+    c.lastTarget = {x:tx,y:ty};
+    var bearing = Math.abs(angleDelta(c.a, heading));
+    var sustained = !!c.tap || c.mode !== "follow" || c.targetStill > 0.6;
+    c.turning = sustained && bearing > (c.turning ? 0.08 : 0.35);
     var maxV = Math.min(180 + 60 * c.size, d * 2.5) * 2;
     var duration = (0.18 + 0.04 * c.size) * 0.45;
     var n;
@@ -459,6 +467,12 @@ function createCrawler(host) {
         c.pushY = plan.y;
         c.pushTurn = plan.turn;
       }
+      if (c.turning) {
+        // Pivot by pushing against one planted tetrapod. The other feet land
+        // around the next body orientation rather than reaching sideways.
+        c.pushX = c.pushY = 0;
+        c.pushTurn = clamp(angleDelta(c.a, heading), -1.5 * duration, 1.5 * duration);
+      }
       c.pushProgress = 0;
       for (n = 0; n < c.feet.length; n++) {
         var moving = c.feet[n];
@@ -470,7 +484,13 @@ function createCrawler(host) {
           continue;
         }
         var target = c.idealFoot(moving);
-        if (plan) {
+        if (c.turning) {
+          var rest = reachable(moving, target.x, target.y);
+          var rx = rest.x - c.x;
+          var ry = rest.y - c.y;
+          lift(moving, c.x + rx * Math.cos(c.pushTurn) - ry * Math.sin(c.pushTurn),
+            c.y + rx * Math.sin(c.pushTurn) + ry * Math.cos(c.pushTurn), maxV);
+        } else if (plan) {
           var planned = plan.target(moving);
           lift(moving, planned.x, planned.y, maxV);
         } else {
@@ -478,7 +498,7 @@ function createCrawler(host) {
             target.y + Math.sin(heading) * maxV * duration, maxV);
         }
         moving.dur = duration;
-        moving.lateralStride = lateralStride;
+        moving.lateralStride = c.turning ? 1 : lateralStride;
       }
     }
     var cycling = c.gaitPhase < 1;
