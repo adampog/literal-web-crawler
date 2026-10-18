@@ -15,8 +15,9 @@ for (const name of ['pan','side-left','side-right','side-left-free','side-right-
       for (const [metric,[lo,hi]] of Object.entries(reference[leg.leg])) {
         const tolerance=Math.max((hi-lo)*.05,['angle','knee','swingDirection'].includes(metric)?3:0);
         const values=leg[metric];
-        if (!values || values[0]<lo-tolerance-1e-8 || values[1]>hi+tolerance+1e-8)
+        if (!values || values[0]<lo-tolerance-1e-8 || values[1]>hi+tolerance+1e-8) {
           errors.push(`${leg.side}${leg.leg} ${metric}=${JSON.stringify(values)}, expected ${lo-tolerance}..${hi+tolerance}`);
+        }
       }
       assert.equal(leg.phase[1],0,'tetrapod group offset');
       assert.ok(leg.slide<1,'rear planted feet must not slide');

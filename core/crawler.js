@@ -374,6 +374,33 @@ function createCrawler(host) {
     f.dur = Math.max(0.08, 0.17 - speed / 2600);
   }
 
+  /** Plan one rigid lateral pose, then place swing feet about that future pose.
+   * Translation and rotation share the same small stance workspace. In
+   * particular a turn must not consume more foot travel than the lateral push.
+   * The four support anchors still determine the actual body pose below.
+   */
+  function lateralPlan(heading, speed, duration, blend) {
+    var forward = Math.cos(heading - c.a);
+    var sideways = Math.sin(heading - c.a);
+    var full = speed * duration * 2 / Math.PI;
+    var travel = full + (Math.min(full, 3 * c.size) - full) * blend;
+    var turn = clamp(angleDelta(c.a, heading), -1.5 * duration * 2 / Math.PI,
+      1.5 * duration * 2 / Math.PI);
+    var turnBudget = travel * 0.04 / c.reach();
+    turn += (clamp(turn, -turnBudget, turnBudget) - turn) * blend;
+    var worldX = Math.cos(heading) * travel;
+    var worldY = Math.sin(heading) * travel;
+    return { x: forward * travel, y: sideways * travel, turn: turn,
+      target: function (f) {
+        var ideal = c.idealFoot(f);
+        var neutral = reachable(f, ideal.x, ideal.y);
+        var dx = neutral.x - c.x;
+        var dy = neutral.y - c.y;
+        return {x:c.x + worldX * 1.5 + dx * Math.cos(turn) - dy * Math.sin(turn),
+          y:c.y + worldY * 1.5 + dx * Math.sin(turn) + dy * Math.cos(turn)};
+      } };
+  }
+
   /** Advance the simulation by dt seconds. */
   c.step = function (dt) {
     // 1. Decide where the body is heading.
@@ -421,14 +448,17 @@ function createCrawler(host) {
       // turns to face the new heading over several steps.
       c.sidestep = Math.max(Math.min(c.sidestep + SIDESTEP_RISE, clamp((Math.abs(Math.sin(heading - c.a)) - 0.12) / 0.12, 0, 1)),
         c.sidestep * SIDESTEP_RELEASE);
-      // The lateral workspace is narrower than the fore/aft workspace. Plan
-      // shorter whole-body strides instead of clipping individual rear feet.
       var lateralStride = Math.max(c.sidestep,
         clamp((Math.abs(Math.sin(heading - c.a)) - 0.12) / 0.25, 0, 1));
-      maxV *= 1 - lateralStride * 0.9;
       c.pushX = Math.cos(heading - c.a) * maxV * duration * 2 / Math.PI;
       c.pushY = Math.sin(heading - c.a) * maxV * duration * 2 / Math.PI;
       c.pushTurn = clamp(angleDelta(c.a, heading), -1.5 * duration * 2 / Math.PI, 1.5 * duration * 2 / Math.PI);
+      var plan = lateralStride > 0.001 ? lateralPlan(heading, maxV, duration, lateralStride) : null;
+      if (plan) {
+        c.pushX = plan.x;
+        c.pushY = plan.y;
+        c.pushTurn = plan.turn;
+      }
       c.pushProgress = 0;
       for (n = 0; n < c.feet.length; n++) {
         var moving = c.feet[n];
@@ -440,18 +470,13 @@ function createCrawler(host) {
           continue;
         }
         var target = c.idealFoot(moving);
-        if (lateralStride > 0) {
-          var neutral = reachable(moving, target.x, target.y);
-          var nx = neutral.x - c.x;
-          var ny = neutral.y - c.y;
-          var anticipate = c.pushTurn;
-          var rotatedX = nx * Math.cos(anticipate) - ny * Math.sin(anticipate);
-          var rotatedY = nx * Math.sin(anticipate) + ny * Math.cos(anticipate);
-          target.x += (rotatedX - (target.x - c.x)) * lateralStride;
-          target.y += (rotatedY - (target.y - c.y)) * lateralStride;
+        if (plan) {
+          var planned = plan.target(moving);
+          lift(moving, planned.x, planned.y, maxV);
+        } else {
+          lift(moving, target.x + Math.cos(heading) * maxV * duration,
+            target.y + Math.sin(heading) * maxV * duration, maxV);
         }
-        lift(moving, target.x + Math.cos(heading) * maxV * duration,
-          target.y + Math.sin(heading) * maxV * duration, maxV);
         moving.dur = duration;
         moving.lateralStride = lateralStride;
       }
