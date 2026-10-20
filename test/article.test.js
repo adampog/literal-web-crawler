@@ -49,6 +49,36 @@ test("worker parsing is asynchronous and late results are fenced after close", (
   assert.equal(h.states.at(-1).article,null);
 });
 
+test("failed replacement searches keep the previous article, including 404 and offline", () => {
+  for (const failure of [h => h.finish(404,""), h => h.finish(0,""),
+    h => h.finish(200,"bad JSON"), h => h.timeout()]) {
+    const h = harness();
+    h.client.search("Earth"); h.finish(200,response());
+    const previous = h.states.at(-1).article;
+    h.client.search("Missing");
+    assert.equal(h.states.at(-1).article,previous,"loading preserves the page");
+    failure(h);
+    assert.equal(h.states.at(-1).article,previous);
+    assert.equal(h.states.at(-1).busy,false);
+    assert.ok(h.states.at(-1).message);
+    h.client.search("");
+    assert.equal(h.states.at(-1).article,previous,"invalid input preserves the page");
+  }
+});
+
+test("canceling a replacement search keeps the article and fences late responses", () => {
+  const h = harness();
+  h.client.search("Earth"); h.finish(200,response());
+  const previous = h.states.at(-1).article;
+  h.client.search("Mars"); h.client.cancel(true);
+  assert.equal(h.requests.at(-1).aborted,true);
+  h.finish(200,response().replaceAll("Earth","Mars"));
+  assert.equal(h.states.at(-1).article,previous);
+  assert.equal(h.states.at(-1).busy,false);
+  h.client.cancel();
+  assert.equal(h.states.at(-1).article,null,"closing clears the session");
+});
+
 test("article layout yields between bounded batches and preserves the full layout", () => {
   const article = core.parseArticle(response("<p>" + "Earth water planet. ".repeat(200) + "</p>"));
   const job = core.createArticleLayout(article,"earth",1000,600,w => w.length * 10);

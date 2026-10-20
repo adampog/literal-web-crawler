@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.6
+
+- Prevent a canceled screenshot capture from reopening the overlay, and finish
+  cleanup before another capture. Screenshots require a private runtime directory.
+- Keep the current Wikipedia article when another search fails or is canceled.
+- Share torn-piece cleanup, remove unused engine fields, and check release versions agree.
+
 ## 1.1.5
 
 - Plan sideways steps and body turns together so the rear legs keep a relaxed

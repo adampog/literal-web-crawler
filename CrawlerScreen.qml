@@ -93,13 +93,8 @@ PanelWindow {
 
   // Put back every torn piece on this screen.
   function repair() {
-    for (var i = 0; i < win.holeItems.length; i++) win.holeItems[i].destroy()
-    win.holeItems = []
+    win.repairPieces()
     if (!win.spider) return
-    for (var k = 0; k < win.spider.pieces.length; k++) {
-      if (win.spider.pieces[k].visual) win.spider.pieces[k].visual.destroy()
-    }
-    win.spider.clearPieces()
     if (win.map) win.map.chunks = []
     if (win.articleMap) {
       Article.repairArticle(win.articleMap)
@@ -520,7 +515,11 @@ PanelWindow {
         activeFocusOnPress: true
         onAccepted: if (!win.host.searchBusy) win.host.submitSearch(text)
         Keys.onEscapePressed: function(event) {
-          if (win.host.article) { win.host.searchPrompt = false; event.accepted = true }
+          if (win.host.article) {
+            if (win.host.articleClient) win.host.articleClient.cancel(true)
+            win.host.searchPrompt = false
+            event.accepted = true
+          }
           else win.host.dismiss()
         }
       }

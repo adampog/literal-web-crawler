@@ -331,8 +331,7 @@ function createCrawler(host) {
       by: f,
       // Where on the piece the foot grabbed it, so it hangs from that point.
       ox: clamp(f.x - rect.x, 0, rect.w),
-      oy: clamp(f.y - rect.y, 0, rect.h),
-      chunk: f.chunk
+      oy: clamp(f.y - rect.y, 0, rect.h)
     };
     // Hand the host's visual back to it through the piece.
     if (rect.visual !== undefined) p.visual = rect.visual;
@@ -473,7 +472,6 @@ function createCrawler(host) {
         c.pushX = c.pushY = 0;
         c.pushTurn = clamp(angleDelta(c.a, heading), -1.5 * duration, 1.5 * duration);
       }
-      c.pushProgress = 0;
       for (n = 0; n < c.feet.length; n++) {
         var moving = c.feet[n];
         if (moving.group !== c.gaitGroup) {
@@ -541,7 +539,7 @@ function createCrawler(host) {
           fixed.stanceX = sx * Math.cos(c.a) + sy * Math.sin(c.a);
           fixed.stanceY = -sx * Math.sin(c.a) + sy * Math.cos(c.a);
         }
-      } else c.pushProgress = progress;
+      }
     }
     c.vx = (c.x - oldX) / dt;
     c.vy = (c.y - oldY) / dt;

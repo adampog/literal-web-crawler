@@ -76,7 +76,7 @@ function createArticleClient(adapters) {
     if (active !== req) return;
     active = null;
     adapters.stopTimer();
-    state = {busy:false, article:article, term:state.term, message:message};
+    state = {busy:false, article:article || state.article, term:state.term, message:message};
     publish();
   }
   return {
@@ -84,13 +84,13 @@ function createArticleClient(adapters) {
       if (active) return false;
       var term = String(input || "").trim();
       if (!term || term.length > 160) {
-        state = {busy:false, article:null, term:term, message:"Enter an article title (up to 160 characters)."};
+        state = {busy:false, article:state.article, term:term, message:"Enter an article title (up to 160 characters)."};
         publish(); return false;
       }
       var req;
       try {
         req = adapters.request(); active = req;
-        state = {busy:true, article:null, term:term, message:"Loading Wikipedia…"}; publish();
+        state = {busy:true, article:state.article, term:term, message:"Loading Wikipedia…"}; publish();
         req.onreadystatechange = function () {
           if (active !== req || req.readyState !== 4) return;
           if (req.status !== 200) {
@@ -120,15 +120,15 @@ function createArticleClient(adapters) {
           finish(req,null,"Could not connect to Wikipedia. Try again.");
           try { req.abort(); } catch (ignoredAbort) { /* No live request. */ }
         } else {
-          state = {busy:false, article:null, term:term, message:"Could not start the Wikipedia request."}; publish();
+          state = {busy:false, article:state.article, term:term, message:"Could not start the Wikipedia request."}; publish();
         }
       }
       return true;
     },
-    cancel: function () {
+    cancel: function (keepArticle) {
       var req = active; active = null; adapters.stopTimer();
       if (req) { try { req.abort(); } catch (ignoredAbort) { /* No live request. */ } }
-      state = {busy:false, article:null, term:"", message:"Enter a Wikipedia article title."}; publish();
+      state = {busy:false, article:keepArticle ? state.article : null, term:"", message:"Enter a Wikipedia article title."}; publish();
     }
   };
 }

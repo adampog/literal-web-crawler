@@ -59,6 +59,7 @@ Item {
 
   // The host reads `opened`; the screens are only created while it is true.
   property bool opened: false
+  property bool capturing: false
   property bool screensaver: false
   property bool searchMode: false
   property bool searchPrompt: false
@@ -93,7 +94,7 @@ Item {
           root.searchMessage = state.message
           root.searchTerm = state.term
           root.article = state.article
-          if (state.article) root.searchPrompt = false
+          if (state.article && !state.busy && !state.message) root.searchPrompt = false
         }
       })
     }
@@ -122,7 +123,7 @@ Item {
 
   // Screenshots go to a per-user tmpfs folder; each open gets a fresh stamp so
   // QML never shows a cached picture from the last run.
-  readonly property string captureDir: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/literal-web-crawler"
+  readonly property string captureDir: Quickshell.env("XDG_RUNTIME_DIR") ? Quickshell.env("XDG_RUNTIME_DIR") + "/literal-web-crawler" : ""
   property string captureStamp: ""
 
   // Settings shared by every screen. The keyboard controls change these.
@@ -139,7 +140,7 @@ Item {
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
     if (!payload || typeof payload !== "object") payload = ({})
-    if (root.opened || capture.running) return
+    if (root.opened || capture.running || cleanup.running) return
     root.screensaver = payload.mode === "screensaver"
     root.searchMode = payload.mode === "search"
     root.searchPrompt = root.searchMode
@@ -157,15 +158,17 @@ Item {
     for (var i = 0; i < Quickshell.screens.length; i++) names.push(Quickshell.screens[i].name)
     // Capture first, then show: the overlay must not be in its own screenshot.
     capture.command = ["bash", "-c", root.captureScript, "literal-web-crawler", root.captureDir, root.captureStamp].concat(names)
+    root.capturing = true
     capture.running = true
   }
 
   function close() {
+    root.capturing = false
     if (root.articleClient) root.articleClient.cancel()
     root.parseId++
     root.parseCallback = null
     root.opened = false
-    cleanup.running = true
+    if (!capture.running) cleanup.running = true
   }
 
   // Close from inside the overlay, and tell the host so its state matches.
@@ -186,6 +189,7 @@ Item {
   // $1 = folder, $2 = stamp, then one output name per monitor.
   readonly property string captureScript: [
     "dir=$1; stamp=$2; shift 2",
+    "test -n \"$dir\" || exit 1",
     "command -v grim >/dev/null || exit 127",
     "mkdir -p \"$dir\" && rm -f \"$dir\"/*.png",
     "for out in \"$@\"; do grim -o \"$out\" \"$dir/$out-$stamp.png\" || exit 1; done"
@@ -194,6 +198,9 @@ Item {
   Process {
     id: capture
     onExited: function(exitCode) {
+      // Let a canceled capture drain before cleanup or the next open.
+      if (!root.capturing) { cleanup.running = true; return }
+      root.capturing = false
       if (exitCode === 0) {
         root.opened = true
         return
@@ -206,7 +213,7 @@ Item {
 
   Process {
     id: cleanup
-    command: ["bash", "-c", "rm -f \"$1\"/*.png", "literal-web-crawler", root.captureDir]
+    command: ["bash", "-c", "test -n \"$1\" && rm -f \"$1\"/*.png", "literal-web-crawler", root.captureDir]
   }
 
   // One window per monitor, created on open and destroyed on close.

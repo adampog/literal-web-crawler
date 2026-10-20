@@ -31,6 +31,7 @@ const id = String(manifest.id || "");
 if (id.startsWith("omarchy.")) errors.push("ids starting with omarchy. are reserved");
 if (!id || id.includes("/") || id.includes("..")) errors.push("id is not a valid directory name");
 if (!/^\d+\.\d+\.\d+$/.test(String(manifest.version))) errors.push("version should be semver");
+if (manifest.version !== require("../package.json").version) errors.push("manifest version must match package.json");
 
 if (!Array.isArray(manifest.kinds) || manifest.kinds.length === 0) {
   errors.push("kinds must be a non-empty array");

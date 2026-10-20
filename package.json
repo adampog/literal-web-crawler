@@ -1,6 +1,6 @@
 {
   "name": "literal-web-crawler",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "description": "A spider that crawls web pages, and your Omarchy desktop, tearing pieces off as it goes.",
   "license": "MIT",
   "author": "adampog",
