@@ -2,7 +2,7 @@
 
 ## 1.1.7
 
-- Abort oversized Wikipedia responses as they arrive, including chunked and gzip bodies.
+- Cap Wikipedia responses at 4 MB with curl, including chunked transfers.
 
 ## 1.1.6
 

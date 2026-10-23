@@ -72,6 +72,8 @@ Item {
   property var parseCallback: null
   property int parseId: 0
 
+  ArticleTransport { id: articleTransport }
+
   function showSearch() {
     if (root.screensaver) return
     root.searchMode = true
@@ -81,7 +83,7 @@ Item {
   function submitSearch(term) {
     if (!root.articleClient) {
       root.articleClient = Article.createArticleClient({
-        request: function() { return new XMLHttpRequest() },
+        request: function(command, callback) { return articleTransport.request(command,callback) },
         parse: function(body, callback) {
           root.parseId++
           root.parseCallback = callback

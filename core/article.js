@@ -1,7 +1,7 @@
 /* eslint no-unused-vars: ["error", { "caughtErrorsIgnorePattern": "^ignored" }] */
-/* Wikipedia REST transport and inert text layout. No DOM, processes or disk cache. */
+/* Wikipedia REST and inert text layout. The QML adapter supplies curl; no DOM or disk cache. */
 /* global WorkerScript */
-/* exported createArticleLayout, parseArticleMessage, createArticleClient, parseArticle, layoutArticle, articleFoothold, articleCanTear, repairArticle, articleTarget, drawArticle */
+/* exported createArticleLayout, parseArticleMessage, createArticleClient, articleCurlCommand, parseCurlResult, parseArticle, layoutArticle, articleFoothold, articleCanTear, repairArticle, articleTarget, drawArticle */
 
 var ARTICLE_RESPONSE_BYTE_LIMIT = 4000000;
 
@@ -86,7 +86,29 @@ function parseArticle(body) {
     licenseUrl:data.license && String(data.license.url || "https://creativecommons.org/licenses/by-sa/4.0/"), revision:data.latest && data.latest.id};
 }
 
-/** Adapters supply an asynchronous XHR and a single 12-second QML timer. */
+function articleCurlCommand(term) {
+  var url = "https://en.wikipedia.org/w/rest.php/v1/page/" + encodeURIComponent(String(term).replace(/ /g,"_")) + "/with_html";
+  return ["curl","--disable","--silent","--show-error","--location","--max-redirs","3","--max-filesize",String(ARTICLE_RESPONSE_BYTE_LIMIT),
+    "--max-time","12","--proto","=https","--proto-redir","=https","--fail-with-body",
+    "--user-agent","LiteralWebCrawler/1.0 (https://github.com/adampog/literal-web-crawler)",
+    "--header","Accept: application/json","--write-out","\n%{http_code} %{size_download}",url];
+}
+
+function parseCurlResult(exitCode, output) {
+  if (exitCode === 63) return {message:"This article is too large. Try a narrower topic."};
+  if (exitCode === 28) return {message:"Wikipedia took too long to respond. Try again."};
+  var text = String(output || "");
+  var marker = /\n(\d{3}) (\d+)$/.exec(text);
+  if (!marker) return {message:"Could not connect to Wikipedia. You may be offline."};
+  var status = Number(marker[1]);
+  if (status === 404) return {message:"Article not found. Try its exact Wikipedia title."};
+  if (status >= 400) return {message:"Wikipedia returned " + status + ". Try again later."};
+  if (exitCode !== 0) return {message:"Could not connect to Wikipedia. You may be offline."};
+  if (status !== 200) return {message:"Wikipedia returned " + status + ". Try again later."};
+  return {body:text.slice(0,marker.index),message:""};
+}
+
+/** Adapters run an argv request asynchronously and supply a single 12-second QML timer. */
 function createArticleClient(adapters) {
   var active = null;
   var state = {busy:false, article:null, term:"", message:"Enter a Wikipedia article title."};
@@ -108,49 +130,30 @@ function createArticleClient(adapters) {
       }
       var req;
       try {
-        req = adapters.request(); active = req;
-        var responseScanned = 0;
-        var responseBytes = 0;
+        req = {abort:function () {}}; active = req;
         state = {busy:true, article:state.article, term:term, message:"Loading Wikipedia…"}; publish();
-        req.onreadystatechange = function () {
-          if (active !== req) return;
-          if (req.readyState === 3) {
-            var measured = countResponseBytes(req.responseText,responseScanned,false);
-            responseScanned = measured.scanned;
-            responseBytes += measured.bytes;
-            if (responseBytes > ARTICLE_RESPONSE_BYTE_LIMIT) {
-              finish(req,null,"This article is too large. Try a narrower topic.");
-              try { req.abort(); } catch (ignoredAbort) { /* Request already ended. */ }
-            }
-            return;
-          }
-          if (req.readyState !== 4) return;
-          if (req.status !== 200) {
-            finish(req,null,req.status === 404 ? "Article not found. Try its exact Wikipedia title."
-              : req.status === 0 ? "Could not connect to Wikipedia. You may be offline."
-                : "Wikipedia returned " + req.status + ". Try again later.");
-            return;
-          }
-          try {
-            if (adapters.parse) {
-              adapters.parse(req.responseText,function (article, message) { finish(req,article,message || ""); });
-            } else finish(req,parseArticle(req.responseText),"");
-          }
-          catch (error) { finish(req,null,String(error.message || "Could not read Wikipedia's article.")); }
-        };
-        req.open("GET", "https://en.wikipedia.org/w/rest.php/v1/page/" + encodeURIComponent(term.replace(/ /g,"_")) + "/with_html", true);
-        req.setRequestHeader("User-Agent", "LiteralWebCrawler/1.0 (https://github.com/adampog/literal-web-crawler)");
-        req.setRequestHeader("Accept", "application/json");
         adapters.startTimer(function () {
           if (active !== req) return;
           finish(req,null,"Wikipedia took too long to respond. Try again.");
-          try { req.abort(); } catch (ignoredAbort) { /* Already finished. */ }
+          req.abort();
         });
-        req.send();
+        var process = adapters.request(articleCurlCommand(term),function (exitCode, output) {
+          if (active !== req) return;
+          req.abort = function () {};
+          var result = parseCurlResult(exitCode,output);
+          if (result.message) { finish(req,null,result.message); return; }
+          try {
+            if (adapters.parse) {
+              adapters.parse(result.body,function (article, message) { finish(req,article,message || ""); });
+            } else finish(req,parseArticle(result.body),"");
+          }
+          catch (error) { finish(req,null,String(error.message || "Could not read Wikipedia's article.")); }
+        });
+        if (active === req && process && typeof process.abort === "function") req.abort = function () { process.abort(); };
       } catch (ignoredError) {
-        if (req) {
+        if (req && active === req) {
           finish(req,null,"Could not connect to Wikipedia. Try again.");
-          try { req.abort(); } catch (ignoredAbort) { /* No live request. */ }
+          req.abort();
         } else {
           state = {busy:false, article:state.article, term:term, message:"Could not start the Wikipedia request."}; publish();
         }

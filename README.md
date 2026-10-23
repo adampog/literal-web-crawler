@@ -15,7 +15,7 @@ Inspired by [this short](https://www.youtube.com/shorts/VKVA8yZ5gTw).
 
 ## Omarchy plugin
 
-Needs Omarchy 4 (the Quickshell-based shell) and `grim`, which Omarchy ships.
+Needs Omarchy 4 (the Quickshell-based shell), `grim`, and `curl` from the Arch base system.
 
 ### Install
 

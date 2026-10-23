@@ -12,28 +12,73 @@ function harness(parse) {
   const states = [];
   let timer = null;
   const client = core.createArticleClient({
-    parse,
-    request() {
-      const req = {headers:{}, open(...args) { this.args = args; }, setRequestHeader(k,v) { this.headers[k] = v; }, send() {}, abort() { this.aborted = true; }};
+    request(command, complete) {
+      const req = {command, complete, aborted:false, abort() { this.aborted = true; }};
       requests.push(req);
       return req;
     },
+    parse,
     startTimer(fn) { timer = fn; }, stopTimer() { timer = null; },
     changed(state) { states.push(state); }
   });
-  return {client,requests,states,timerValue() { return timer; },timeout() { timer(); }, finish(status, text) {
-    const req = requests.at(-1); req.status = status; req.responseText = text; req.readyState = 4; req.onreadystatechange();
+  return {client,requests,states,timeout() { timer(); },finish(exitCode, body = "", status = 200) {
+    requests.at(-1).complete(exitCode,body + "\n" + String(status).padStart(3,"0") + " " + String(Buffer.byteLength(body)));
   }};
 }
 
-test("one asynchronous identified REST request per search, no parallel or automatic retry", () => {
+test("curl argv caps the direct HTTPS request without a shell or compression", () => {
+  const h = harness();
+  h.client.search("Earth & Moon");
+  const args = h.requests[0].command;
+  assert.equal(args[0],"curl");
+  assert.equal(args[1],"--disable","do not allow curl configuration files to change the argv policy");
+  assert.ok(args.includes("--max-filesize") && args[args.indexOf("--max-filesize") + 1] === "4000000");
+  assert.ok(args.includes("--max-time") && args[args.indexOf("--max-time") + 1] === "12");
+  assert.ok(args.includes("--proto") && args[args.indexOf("--proto") + 1] === "=https");
+  assert.ok(args.includes("--proto-redir") && args[args.indexOf("--proto-redir") + 1] === "=https");
+  assert.ok(args.includes("--location") && args.includes("--max-redirs"));
+  assert.ok(!args.includes("--compressed"));
+  assert.ok(args.at(-1).endsWith("/Earth_%26_Moon/with_html"));
+  assert.equal(args.includes("bash"),false);
+  assert.ok(args.includes("--header") && args[args.indexOf("--header") + 1] === "Accept: application/json");
+  assert.match(args[args.indexOf("--user-agent") + 1],/LiteralWebCrawler.*github.com\/adampog/);
+});
+
+test("curl outcomes map to existing messages and preserve the previous article", () => {
+  const h = harness();
+  h.client.search("Earth");
+  h.finish(0,response());
+  const previous = h.states.at(-1).article;
+  for (const [exitCode,status,message] of [
+    [63,200,/too large/i], [28,0,/too long/i], [22,404,/not found/i],
+    [22,503,/Wikipedia returned 503/], [7,0,/offline|connect/i]
+  ]) {
+    h.client.search("Mars");
+    h.finish(exitCode,"",status);
+    assert.match(h.states.at(-1).message,message);
+    assert.equal(h.states.at(-1).article,previous);
+    assert.equal(h.states.at(-1).busy,false);
+  }
+});
+
+test("curl cancellation aborts and ignores a late process result", () => {
+  const h = harness();
+  h.client.search("Earth");
+  const req = h.requests[0];
+  h.client.cancel(true);
+  assert.equal(req.aborted,true);
+  const afterCancel = h.states.at(-1);
+  h.finish(0,response());
+  assert.equal(h.states.at(-1),afterCancel);
+});
+
+test("one identified REST request per search, no parallel or automatic retry", () => {
   const h = harness();
   assert.equal(h.client.search(" Earth "), true);
   assert.equal(h.client.search("Mars"), false);
   assert.equal(h.requests.length, 1);
-  assert.deepEqual(Array.from(h.requests[0].args), ["GET", "https://en.wikipedia.org/w/rest.php/v1/page/Earth/with_html", true]);
-  assert.match(h.requests[0].headers["User-Agent"], /LiteralWebCrawler.*github.com\/adampog/);
-  h.finish(200, response());
+  assert.ok(h.requests[0].command.at(-1).endsWith("/Earth/with_html"));
+  h.finish(0,response());
   assert.equal(h.states.at(-1).article.title, "Earth");
   assert.equal(h.states.at(-1).busy, false);
   assert.equal(h.requests.length, 1);
@@ -42,18 +87,18 @@ test("one asynchronous identified REST request per search, no parallel or automa
 test("worker parsing is asynchronous and late results are fenced after close", () => {
   let callback;
   const h = harness((body, done) => { callback = done; });
-  h.client.search("Earth"); h.finish(200,response());
+  h.client.search("Earth"); h.finish(0,response());
   assert.equal(h.states.at(-1).busy,true,"main thread parsed the article synchronously");
   h.client.cancel();
   callback(core.parseArticle(response()),"");
   assert.equal(h.states.at(-1).article,null);
 });
 
-test("failed replacement searches keep the previous article, including 404 and offline", () => {
-  for (const failure of [h => h.finish(404,""), h => h.finish(0,""),
-    h => h.finish(200,"bad JSON"), h => h.timeout()]) {
+test("failed replacement searches keep the previous article", () => {
+  for (const failure of [h => h.finish(22,"",404), h => h.finish(7,"",0),
+    h => h.finish(0,"bad JSON"), h => h.timeout()]) {
     const h = harness();
-    h.client.search("Earth"); h.finish(200,response());
+    h.client.search("Earth"); h.finish(0,response());
     const previous = h.states.at(-1).article;
     h.client.search("Missing");
     assert.equal(h.states.at(-1).article,previous,"loading preserves the page");
@@ -68,50 +113,18 @@ test("failed replacement searches keep the previous article, including 404 and o
 
 test("canceling a replacement search keeps the article and fences late responses", () => {
   const h = harness();
-  h.client.search("Earth"); h.finish(200,response());
+  h.client.search("Earth"); h.finish(0,response());
   const previous = h.states.at(-1).article;
   h.client.search("Mars"); h.client.cancel(true);
   assert.equal(h.requests.at(-1).aborted,true);
-  h.finish(200,response().replaceAll("Earth","Mars"));
+  h.finish(0,response().replaceAll("Earth","Mars"));
   assert.equal(h.states.at(-1).article,previous);
   assert.equal(h.states.at(-1).busy,false);
   h.client.cancel();
   assert.equal(h.states.at(-1).article,null,"closing clears the session");
 });
 
-test("oversized streaming responses abort before completion and preserve the previous article", () => {
-  const h = harness();
-  h.client.search("Earth"); h.finish(200,response());
-  const previous = h.states.at(-1).article;
-  h.client.search("Mars");
-  const req = h.requests.at(-1);
-  req.readyState = 3;
-  req.responseText = "x".repeat(4000001);
-  req.onreadystatechange();
-  assert.equal(req.aborted,true);
-  assert.equal(req.readyState,3,"abort happened before the response completed");
-  assert.equal(h.states.at(-1).busy,false);
-  assert.equal(h.states.at(-1).article,previous);
-  assert.match(h.states.at(-1).message,/too large/i);
-  assert.equal(h.timerValue(),null);
-});
-
-test("streaming response ceiling counts UTF-8 bytes across split surrogate pairs", () => {
-  const h = harness();
-  h.client.search("Earth");
-  const req = h.requests[0];
-  req.readyState = 3;
-  req.responseText = "é".repeat(1999998) + "x";
-  req.onreadystatechange();
-  assert.equal(req.aborted,undefined,"3,999,997 UTF-8 bytes are below the ceiling");
-  req.responseText += "\ud83d";
-  req.onreadystatechange();
-  assert.equal(req.aborted,undefined,"an incomplete final surrogate is not counted early");
-  req.responseText += "\ude00";
-  req.onreadystatechange();
-  assert.equal(req.aborted,true,"the completed emoji takes the response to 4,000,001 bytes");
-  assert.match(h.states.at(-1).message,/too large/i);
-
+test("parseArticle keeps the same UTF-8 ceiling behind curl", () => {
   assert.throws(() => core.parseArticle(response("<p>" + "é".repeat(2000001) + "</p>")),/too large/i,
     "the completed-response parser uses the same UTF-8 byte ceiling");
 });
@@ -136,13 +149,13 @@ test("worker returns a bounded excerpt with license attribution and reports pars
   assert.equal(core.parseArticleMessage({id:8,body:"bad"}).article,null);
 });
 
-test("offline, missing, disambiguation, malformed and oversized responses fail plainly", () => {
-  for (const [status, body, message] of [
-    [0,"",/offline|connection/i], [404,"",/not found/i], [429,"",/Wikipedia.*429/],
-    [200,response('<meta property="mw:PageProp/disambiguation"/><p>Choose a topic</p>'),/specific/i],
-    [200,"not json",/read/i], [200,"x".repeat(4000001),/large/i]
+test("missing, disambiguation, malformed and oversized responses fail plainly", () => {
+  for (const [exitCode, status, body, message] of [
+    [22,429,"",/Wikipedia.*429/],
+    [0,200,response('<meta property="mw:PageProp/disambiguation"/><p>Choose a topic</p>'),/specific/i],
+    [0,200,"not json",/read/i], [63,200,"",/large/i]
   ]) {
-    const h = harness(); h.client.search("Earth"); h.finish(status,body);
+    const h = harness(); h.client.search("Earth"); h.finish(exitCode,body,status);
     assert.match(h.states.at(-1).message,message);
     assert.equal(h.states.at(-1).busy,false);
     assert.equal(h.states.at(-1).article,null);
@@ -156,11 +169,11 @@ test("timeout and close abort; late callbacks cannot revive an old article", () 
     const old = h.requests[0];
     if (reason === "timeout") h.timeout(); else h.client.cancel();
     assert.equal(old.aborted,true);
-    h.finish(200,response());
+    h.finish(0,response());
     assert.equal(h.states.at(-1).article,null);
     assert.equal(h.states.at(-1).busy,false);
     h.client.search("Mars");
-    old.readyState = 4; old.onreadystatechange();
+    old.complete(0,response() + "\n200 " + String(Buffer.byteLength(response())));
     assert.equal(h.states.at(-1).busy,true);
   }
 });

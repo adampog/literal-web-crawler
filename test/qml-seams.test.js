@@ -71,6 +71,23 @@ test("article state keeps search prompt visible while loading or failed; Esc can
   assert.equal(dismissed,false);
 });
 
+test("curl Process adapter receives argv and stops without completing a canceled request", () => {
+  const process = {running:false,completion:null,destroyed:false};
+  const command = ["curl","--max-filesize","4000000","https://example.invalid"];
+  let created;
+  const request = qmlFunction("ArticleTransport.qml","function request(command, callback)",{
+    root:{}, curlProcess:{createObject(parent,properties) { created = properties; Object.assign(process,properties); return process; }}
+  });
+  let completed = false;
+  const cancel = request(command,() => { completed = true; });
+  assert.equal(created.command,command);
+  assert.equal(process.running,true);
+  cancel.abort();
+  assert.equal(process.running,false);
+  assert.equal(process.completion,null);
+  assert.equal(completed,false);
+});
+
 test("missing runtime directory fails capture without a shared-folder fallback", () => {
   const source = fs.readFileSync(path.join(__dirname,"..","Crawler.qml"),"utf8");
   const expression = source.match(/readonly property string captureDir: (.*)/)[1];
