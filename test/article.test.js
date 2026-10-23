@@ -21,7 +21,7 @@ function harness(parse) {
     startTimer(fn) { timer = fn; }, stopTimer() { timer = null; },
     changed(state) { states.push(state); }
   });
-  return {client,requests,states,timeout() { timer(); }, finish(status, text) {
+  return {client,requests,states,timerValue() { return timer; },timeout() { timer(); }, finish(status, text) {
     const req = requests.at(-1); req.status = status; req.responseText = text; req.readyState = 4; req.onreadystatechange();
   }};
 }
@@ -77,6 +77,43 @@ test("canceling a replacement search keeps the article and fences late responses
   assert.equal(h.states.at(-1).busy,false);
   h.client.cancel();
   assert.equal(h.states.at(-1).article,null,"closing clears the session");
+});
+
+test("oversized streaming responses abort before completion and preserve the previous article", () => {
+  const h = harness();
+  h.client.search("Earth"); h.finish(200,response());
+  const previous = h.states.at(-1).article;
+  h.client.search("Mars");
+  const req = h.requests.at(-1);
+  req.readyState = 3;
+  req.responseText = "x".repeat(4000001);
+  req.onreadystatechange();
+  assert.equal(req.aborted,true);
+  assert.equal(req.readyState,3,"abort happened before the response completed");
+  assert.equal(h.states.at(-1).busy,false);
+  assert.equal(h.states.at(-1).article,previous);
+  assert.match(h.states.at(-1).message,/too large/i);
+  assert.equal(h.timerValue(),null);
+});
+
+test("streaming response ceiling counts UTF-8 bytes across split surrogate pairs", () => {
+  const h = harness();
+  h.client.search("Earth");
+  const req = h.requests[0];
+  req.readyState = 3;
+  req.responseText = "é".repeat(1999998) + "x";
+  req.onreadystatechange();
+  assert.equal(req.aborted,undefined,"3,999,997 UTF-8 bytes are below the ceiling");
+  req.responseText += "\ud83d";
+  req.onreadystatechange();
+  assert.equal(req.aborted,undefined,"an incomplete final surrogate is not counted early");
+  req.responseText += "\ude00";
+  req.onreadystatechange();
+  assert.equal(req.aborted,true,"the completed emoji takes the response to 4,000,001 bytes");
+  assert.match(h.states.at(-1).message,/too large/i);
+
+  assert.throws(() => core.parseArticle(response("<p>" + "é".repeat(2000001) + "</p>")),/too large/i,
+    "the completed-response parser uses the same UTF-8 byte ceiling");
 });
 
 test("article layout yields between bounded batches and preserves the full layout", () => {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.7
+
+- Abort oversized Wikipedia responses as they arrive, including chunked and gzip bodies.
+
 ## 1.1.6
 
 - Prevent a canceled screenshot capture from reopening the overlay, and finish

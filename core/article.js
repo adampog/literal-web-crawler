@@ -3,6 +3,25 @@
 /* global WorkerScript */
 /* exported createArticleLayout, parseArticleMessage, createArticleClient, parseArticle, layoutArticle, articleFoothold, articleCanTear, repairArticle, articleTarget, drawArticle */
 
+var ARTICLE_RESPONSE_BYTE_LIMIT = 4000000;
+
+function countResponseBytes(text, start, complete) {
+  var bytes = 0;
+  var i = start || 0;
+  for (; i < text.length; i++) {
+    var code = text.charCodeAt(i);
+    if (code < 0x80) bytes++;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      var next = i + 1 < text.length ? text.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) { bytes += 4; i++; }
+      else if (!complete && i + 1 === text.length) break;
+      else bytes += 3;
+    } else bytes += 3;
+  }
+  return {bytes:bytes, scanned:i};
+}
+
 function articleText(html) {
   var parts = [];
   var skipped = [];
@@ -53,7 +72,7 @@ function articleText(html) {
 }
 
 function parseArticle(body) {
-  if (typeof body !== "string" || body.length > 4000000) throw new Error("This article is too large. Try a narrower topic.");
+  if (typeof body !== "string" || countResponseBytes(body,0,true).bytes > ARTICLE_RESPONSE_BYTE_LIMIT) throw new Error("This article is too large. Try a narrower topic.");
   var data;
   try { data = JSON.parse(body); } catch (ignoredError) { throw new Error("Could not read Wikipedia's response."); }
   if (!data || typeof data.html !== "string" || typeof data.title !== "string") throw new Error("Could not read Wikipedia's article.");
@@ -90,9 +109,22 @@ function createArticleClient(adapters) {
       var req;
       try {
         req = adapters.request(); active = req;
+        var responseScanned = 0;
+        var responseBytes = 0;
         state = {busy:true, article:state.article, term:term, message:"Loading Wikipedia…"}; publish();
         req.onreadystatechange = function () {
-          if (active !== req || req.readyState !== 4) return;
+          if (active !== req) return;
+          if (req.readyState === 3) {
+            var measured = countResponseBytes(req.responseText,responseScanned,false);
+            responseScanned = measured.scanned;
+            responseBytes += measured.bytes;
+            if (responseBytes > ARTICLE_RESPONSE_BYTE_LIMIT) {
+              finish(req,null,"This article is too large. Try a narrower topic.");
+              try { req.abort(); } catch (ignoredAbort) { /* Request already ended. */ }
+            }
+            return;
+          }
+          if (req.readyState !== 4) return;
           if (req.status !== 200) {
             finish(req,null,req.status === 404 ? "Article not found. Try its exact Wikipedia title."
               : req.status === 0 ? "Could not connect to Wikipedia. You may be offline."
